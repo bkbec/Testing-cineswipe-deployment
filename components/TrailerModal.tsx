@@ -1,15 +1,32 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
+import { MovieService } from '../services/movieService';
 
 interface TrailerModalProps {
   isOpen: boolean;
   onClose: () => void;
   title: string;
+  movieId?: string;
 }
 
-const TrailerModal: React.FC<TrailerModalProps> = ({ isOpen, onClose, title }) => {
+const TrailerModal: React.FC<TrailerModalProps> = ({ isOpen, onClose, title, movieId }) => {
+  const [videoKey, setVideoKey] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && movieId) {
+      setIsLoading(true);
+      MovieService.getTrailerKey(movieId).then(key => {
+        setVideoKey(key);
+        setIsLoading(false);
+      });
+    } else {
+      setVideoKey(null);
+    }
+  }, [isOpen, movieId]);
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -35,15 +52,28 @@ const TrailerModal: React.FC<TrailerModalProps> = ({ isOpen, onClose, title }) =
                 <X className="w-6 h-6" />
               </button>
             </div>
-            {/* Using a placeholder for trailer content */}
-            <div className="w-full h-full bg-slate-900 flex items-center justify-center flex-col gap-4">
-              <div className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-                <div className="w-0 h-0 border-t-[15px] border-t-transparent border-l-[25px] border-l-white border-b-[15px] border-b-transparent ml-2" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-xl font-black">{title}</h3>
-                <p className="text-slate-500 font-medium">Official Trailer (Placeholder)</p>
-              </div>
+            
+            <div className="w-full h-full bg-slate-900 flex items-center justify-center">
+              {isLoading ? (
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#DE3151]"></div>
+              ) : videoKey ? (
+                <iframe
+                  className="w-full h-full"
+                  src={`https://www.youtube.com/embed/${videoKey}?autoplay=1&modestbranding=1`}
+                  title={title}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                ></iframe>
+              ) : (
+                <div className="text-center p-8">
+                  <div className="w-20 h-20 bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <X className="w-8 h-8 text-zinc-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-white">Trailer Unavailable</h3>
+                  <p className="text-zinc-500 font-medium">We couldn't find a video for {title}.</p>
+                </div>
+              )}
             </div>
           </motion.div>
         </div>
