@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, X } from 'lucide-react';
@@ -8,7 +9,7 @@ import Onboarding from './components/Onboarding';
 import ProfileSection from './components/ProfileSection';
 import WatchedHistoryView from './components/WatchedHistoryView';
 import { MovieService } from './services/movieService';
-import { Movie, InteractionType } from './types';
+import { Movie, InteractionType, OnboardingData } from './types';
 
 const App: React.FC = () => {
   const [hasOnboarded, setHasOnboarded] = useState(false);
@@ -27,10 +28,24 @@ const App: React.FC = () => {
     return newId;
   });
 
+  // Debugging: Verify Supabase environment keys
+  useEffect(() => {
+    try {
+      const urlExists = typeof process !== 'undefined' && !!process.env?.VITE_SUPABASE_URL;
+      const keyExists = typeof process !== 'undefined' && !!process.env?.VITE_SUPABASE_ANON_KEY;
+      console.log("Supabase URL Check:", urlExists);
+      console.log("Supabase Key Check:", keyExists);
+    } catch (e) {
+      console.warn("Could not check environment variables", e);
+    }
+  }, []);
+
   useEffect(() => {
     const done = localStorage.getItem('cinematch_onboarded');
-    if (done) setHasOnboarded(true);
-    refreshData();
+    if (done) {
+      setHasOnboarded(true);
+      refreshData();
+    }
   }, [userId]);
 
   const refreshData = async () => {
@@ -39,11 +54,11 @@ const App: React.FC = () => {
       
       const likedIds = (interactions || [])
         .filter(i => i.type === InteractionType.YES)
-        .map(i => i.movieId);
+        .map(i => String(i.movieId));
       
       const watchedIds = (interactions || [])
         .filter(i => i.type === InteractionType.WATCHED)
-        .map(i => i.movieId);
+        .map(i => String(i.movieId));
       
       if (likedIds.length > 0) {
         const movies = await MovieService.getMoviesByIds(likedIds);
@@ -63,16 +78,36 @@ const App: React.FC = () => {
     }
   };
 
-  const handleOnboardingComplete = (data: any) => {
+  const handleOnboardingComplete = async (onboardingData: OnboardingData) => {
+    localStorage.setItem('cinematch_onboarding_data', JSON.stringify(onboardingData));
+    
+    if (onboardingData.masterpieces?.length > 0) {
+      const masterpieces = await MovieService.getTrendingForOnboarding();
+      for (const mId of onboardingData.masterpieces) {
+        const fullMovieData = masterpieces.find(m => m.id === mId);
+        await MovieService.submitInteraction({
+          userId,
+          user_name: 'User1', // Defaulting as requested
+          movieId: String(mId),
+          title: fullMovieData?.title,
+          posterUrl: fullMovieData?.posterUrl,
+          type: InteractionType.YES,
+          timestamp: Date.now()
+        });
+      }
+    }
+
     localStorage.setItem('cinematch_onboarded', 'true');
     setHasOnboarded(true);
+    refreshData();
   };
 
   const handleDiscoverInteraction = async (movieId: string, type: InteractionType) => {
+    const safeMovieId = String(movieId);
     if (type === InteractionType.YES) {
-      const isMatch = await MovieService.checkForMatches(movieId, userId);
+      const isMatch = await MovieService.checkForMatches(safeMovieId, userId);
       if (isMatch) {
-        const movies = await MovieService.getMoviesByIds([movieId]);
+        const movies = await MovieService.getMoviesByIds([safeMovieId]);
         if (movies && movies[0]) {
           setMatchMovie(movies[0]);
         }
@@ -140,7 +175,7 @@ const App: React.FC = () => {
             onInteraction={handleDiscoverInteraction} 
           />
         )}
-        {activeTab === 'likes' && renderListView('My Favorites', likedMovies, 'Keep swiping to build your collection of movies you want to see.')}
+        {activeTab === 'likes' && renderListView('My Favorites', likedMovies, 'Films you marked with a heart. Perfect for tonight.')}
         {activeTab === 'shared' && renderListView('Shared Likes', [], 'Connect with a partner to see movies both of you liked!')}
         {activeTab === 'profile' && !isViewingAllWatched && (
           <ProfileSection 
@@ -165,7 +200,6 @@ const App: React.FC = () => {
         refreshData(); 
       }} />
 
-      {/* Match Overlay */}
       <AnimatePresence>
         {matchMovie && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
@@ -180,7 +214,7 @@ const App: React.FC = () => {
               initial={{ scale: 0.8, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: 50 }}
-              className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 w-full max-w-sm text-center shadow-[0_0_100px_rgba(222,49,81,0.5)]"
+              className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 w-full max-sm:p-6 max-w-sm text-center shadow-[0_0_100px_rgba(222,49,81,0.5)]"
             >
               <div className="w-20 h-20 bg-[#DE3151] rounded-3xl mx-auto mb-6 flex items-center justify-center rotate-12 shadow-2xl">
                 <Sparkles className="w-10 h-10 text-white animate-pulse" />
@@ -194,7 +228,7 @@ const App: React.FC = () => {
 
               <button 
                 onClick={() => setMatchMovie(null)}
-                className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl"
+                className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl active:scale-95 transition-transform"
               >
                 Amazing!
               </button>
@@ -210,15 +244,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
-import { createRoot } from 'react-dom/client';
-
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
-}

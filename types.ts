@@ -30,10 +30,13 @@ export enum InteractionType {
 
 export interface UserInteraction {
   userId: string;
+  user_name?: string;   // Added for DB constraint requirements
   movieId: string;
+  title?: string;       
+  posterUrl?: string;   
   type: InteractionType;
   timestamp: number;
-  personalRating?: number; // 1-5
+  personalRating?: number; 
   notes?: string;
 }
 

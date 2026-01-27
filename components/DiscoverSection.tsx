@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SlidersHorizontal, Loader2 } from 'lucide-react';
@@ -68,13 +69,18 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
 
     const currentMovie = currentQueue[currentIndex];
     if (currentMovie && currentMovie.id) {
+      // Explicitly convert movie_id to string as requested
+      const safeMovieId = String(currentMovie.id);
+      
       await MovieService.submitInteraction({
         userId: userId,
-        movieId: currentMovie.id,
+        movieId: safeMovieId,
+        title: currentMovie.title,
+        posterUrl: currentMovie.posterUrl,
         type,
         timestamp: Date.now()
       });
-      if (onInteraction) onInteraction(currentMovie.id, type);
+      if (onInteraction) onInteraction(safeMovieId, type);
     }
 
     setCurrentIndex(prev => prev + 1);
