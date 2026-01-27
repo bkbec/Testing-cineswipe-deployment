@@ -1,6 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, Check, Upload, Search, X, Plus } from 'lucide-react';
+import { ChevronRight, Check, Upload, Search, Loader2, Plus, X } from 'lucide-react';
 import { OnboardingStep, OnboardingData, Movie } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -19,7 +20,10 @@ interface OnboardingProps {
 const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [step, setStep] = useState<OnboardingStep>('GENRES');
   const [searchInput, setSearchInput] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [trendingMovies, setTrendingMovies] = useState<Partial<Movie>[]>([]);
+  const [searchResults, setSearchResults] = useState<Partial<Movie>[]>([]);
+  const [selectedMoviesDetails, setSelectedMoviesDetails] = useState<Partial<Movie>[]>([]);
   const [data, setData] = useState<OnboardingData>({
     genres: [],
     masterpieces: [],
@@ -27,17 +31,38 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   });
 
   useEffect(() => {
-    const load = async () => {
+    const loadTrending = async () => {
       try {
         const movies = await MovieService.getTrendingForOnboarding();
         setTrendingMovies(movies || []);
       } catch (e) {
-        console.error("Onboarding load error", e);
+        console.error("Onboarding trending load error", e);
         setTrendingMovies([]);
       }
     };
-    load();
+    loadTrending();
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (searchInput.trim().length > 1) {
+        setIsSearching(true);
+        try {
+          const results = await MovieService.searchMovies(searchInput);
+          setSearchResults(results || []);
+        } catch (e) {
+          console.error("Search failed", e);
+          setSearchResults([]);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setSearchResults([]);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const toggleGenre = (genre: string) => {
     setData(prev => ({
@@ -48,20 +73,22 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     }));
   };
 
-  const toggleMasterpiece = (id: string) => {
-    if (!id) return;
-    setData(prev => ({
-      ...prev,
-      masterpieces: (prev.masterpieces || []).includes(id) 
-        ? prev.masterpieces.filter(m => m !== id) 
-        : [...(prev.masterpieces || []), id]
-    }));
-  };
-
-  const handleManualAdd = () => {
-    if (searchInput.trim()) {
-      toggleMasterpiece(`manual-${searchInput}`);
-      setSearchInput('');
+  const toggleMasterpiece = (movie: Partial<Movie>) => {
+    if (!movie.id) return;
+    const isSelected = (data.masterpieces || []).includes(movie.id);
+    
+    if (isSelected) {
+      setData(prev => ({
+        ...prev,
+        masterpieces: prev.masterpieces.filter(m => m !== movie.id)
+      }));
+      setSelectedMoviesDetails(prev => prev.filter(m => m.id !== movie.id));
+    } else {
+      setData(prev => ({
+        ...prev,
+        masterpieces: [...(prev.masterpieces || []), movie.id!]
+      }));
+      setSelectedMoviesDetails(prev => [...prev, movie]);
     }
   };
 
@@ -81,8 +108,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     else onComplete(data);
   };
 
-  // Safe fallback for slice and map
-  const displayTrending = (trendingMovies || []).slice(0, 12);
+  const displayMovies = searchInput.trim().length > 1 ? searchResults : trendingMovies;
 
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col p-6 overflow-hidden select-none">
@@ -135,51 +161,83 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 className="absolute inset-0 flex flex-col"
               >
                 <h2 className="text-4xl font-black mb-2 text-white tracking-tight">Your Hall of Fame</h2>
-                <p className="text-zinc-400 mb-6 font-medium">Select or search for films you adore.</p>
+                <p className="text-zinc-400 mb-6 font-medium">Select films you adore to seed your taste.</p>
                 
-                <div className="flex gap-2 mb-6 shrink-0 h-14">
+                <div className="flex gap-2 mb-4 shrink-0 h-14">
                   <div className="relative flex-1 h-full">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500 w-4 h-4" />
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
+                      {isSearching ? <Loader2 className="w-4 h-4 animate-spin text-[#DE3151]" /> : <Search className="w-4 h-4" />}
+                    </div>
                     <input 
                       type="text" 
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleManualAdd()}
-                      placeholder="Type any film title..." 
-                      className="w-full h-full bg-zinc-900 border border-zinc-800 rounded-2xl pl-12 pr-4 focus:ring-2 focus:ring-[#DE3151] outline-none transition-all text-white font-medium"
+                      placeholder="Search for movies..." 
+                      className="w-full h-full bg-zinc-900 border border-zinc-800 rounded-2xl pl-12 pr-4 focus:ring-2 focus:ring-[#DE3151] outline-none transition-all text-white font-medium placeholder:text-zinc-600"
                     />
                   </div>
-                  <button 
-                    onClick={handleManualAdd}
-                    className="bg-zinc-800 w-14 h-14 shrink-0 rounded-2xl text-[#DE3151] flex items-center justify-center active:scale-95 transition-transform"
-                  >
-                    <Plus className="w-6 h-6" />
-                  </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
-                  <div className="grid grid-cols-3 gap-3">
-                    {displayTrending.map(m => (
-                      <button 
-                        key={m.id}
-                        onClick={() => m.id && toggleMasterpiece(m.id)}
-                        className={`relative rounded-xl overflow-hidden aspect-[2/3] transition-all border-[3px] w-full block ${
-                          m.id && (data.masterpieces || []).includes(m.id) 
-                            ? 'border-[#DE3151] scale-[0.98] shadow-lg shadow-[#DE3151]/20 opacity-100' 
-                            : 'border-transparent opacity-60 hover:opacity-100 scale-100'
-                        }`}
-                      >
-                        <img src={m.posterUrl} className="w-full h-full object-cover pointer-events-none" alt={m.title} />
-                        {m.id && (data.masterpieces || []).includes(m.id) && (
-                          <div className="absolute inset-0 bg-[#DE3151]/20 flex items-center justify-center backdrop-blur-[1px]">
-                            <div className="bg-white rounded-full p-1 shadow-lg">
-                              <Check className="w-4 h-4 text-[#DE3151]" />
-                            </div>
-                          </div>
-                        )}
-                      </button>
-                    ))}
+                {/* Selected Movies List */}
+                {selectedMoviesDetails.length > 0 && (
+                  <div className="mb-6 shrink-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-black uppercase text-zinc-500 tracking-[0.2em]">Selected ({selectedMoviesDetails.length})</span>
+                    </div>
+                    <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                      <AnimatePresence>
+                        {selectedMoviesDetails.map(m => (
+                          <motion.div 
+                            key={m.id}
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            className="relative flex-shrink-0 w-20 aspect-[2/3] rounded-xl overflow-hidden border-2 border-[#DE3151] group shadow-lg shadow-[#DE3151]/10"
+                          >
+                            <img src={m.posterUrl} className="w-full h-full object-cover" alt={m.title} />
+                            <button 
+                               onClick={() => toggleMasterpiece(m)}
+                               className="absolute top-1 right-1 bg-[#DE3151] rounded-full p-1 shadow-lg active:scale-90 transition-transform"
+                            >
+                              <X className="w-3 h-3 text-white" />
+                            </button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+                    </div>
                   </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
+                  {displayMovies.length === 0 && !isSearching ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+                      <div className="w-20 h-20 bg-zinc-900 rounded-3xl flex items-center justify-center text-3xl mb-4 grayscale opacity-40">🎬</div>
+                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-[10px]">No results found</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      {displayMovies.map(m => (
+                        <button 
+                          key={m.id}
+                          onClick={() => m.id && toggleMasterpiece(m)}
+                          className={`relative rounded-xl overflow-hidden aspect-[2/3] transition-all border-[3px] w-full block bg-zinc-900 ${
+                            m.id && (data.masterpieces || []).includes(m.id) 
+                              ? 'border-[#DE3151] scale-[0.98] shadow-lg shadow-[#DE3151]/20 opacity-100' 
+                              : 'border-transparent opacity-60 hover:opacity-100 scale-100'
+                          }`}
+                        >
+                          <img src={m.posterUrl} className="w-full h-full object-cover pointer-events-none" alt={m.title} />
+                          {m.id && (data.masterpieces || []).includes(m.id) && (
+                            <div className="absolute inset-0 bg-[#DE3151]/20 flex items-center justify-center backdrop-blur-[1px]">
+                              <div className="bg-white rounded-full p-1 shadow-lg">
+                                <Check className="w-4 h-4 text-[#DE3151]" />
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </motion.div>
             )}

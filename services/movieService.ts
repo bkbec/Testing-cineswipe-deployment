@@ -1,57 +1,138 @@
 import { Movie, InteractionType, UserInteraction } from '../types';
+import { supabase } from '../lib/supabase';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee'; 
 
 export class MovieService {
-  private static STORAGE_KEY = 'cinematch_interactions';
-
-  static getInteractions(): UserInteraction[] {
+  /**
+   * Fetches user interactions from Supabase.
+   */
+  static async getInteractions(userId: string): Promise<UserInteraction[]> {
     try {
-      const data = localStorage.getItem(this.STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
+      const { data, error } = await supabase
+        .from('likes')
+        .select('*')
+        .eq('userId', userId);
+      
+      if (error) throw error;
+      return data || [];
     } catch (e) {
-      console.error("Failed to parse interactions from local storage", e);
+      console.error("Failed to fetch interactions from Supabase", e);
       return [];
     }
   }
 
+  /**
+   * Persists an interaction (Like, No, Watched) to Supabase.
+   */
   static async submitInteraction(interaction: UserInteraction): Promise<boolean> {
     try {
-      const interactions = this.getInteractions();
-      interactions.push(interaction);
-      localStorage.setItem(this.STORAGE_KEY, JSON.stringify(interactions));
+      const { error } = await supabase
+        .from('likes')
+        .upsert([interaction], { onConflict: 'userId,movieId' });
+      
+      if (error) throw error;
       return true;
     } catch (e) {
-      console.error("Failed to save interaction", e);
+      console.error("Failed to save interaction to Supabase", e);
       return false;
     }
   }
 
-  static async getDiscoverQueue(userId: string): Promise<Movie[]> {
-    const history = this.getInteractions().map(i => i.movieId);
-    
+  /**
+   * Updates an existing interaction (e.g., adding a personal rating).
+   */
+  static async updateInteraction(userId: string, movieId: string, updates: Partial<UserInteraction>): Promise<boolean> {
     try {
-      const response = await fetch(`${TMDB_BASE_URL}/movie/popular?api_key=${TMDB_API_KEY}&language=en-US&page=1`);
-      if (!response.ok) {
-        throw new Error(`TMDB API Error: ${response.statusText}`);
-      }
-      const data = await response.json();
+      const { error } = await supabase
+        .from('likes')
+        .update(updates)
+        .match({ userId, movieId });
       
-      if (!data || !data.results) {
-        console.error("TMDB returned no results for discovery queue", data);
-        return [];
-      }
-      
-      const results = data.results || [];
-      
-      const movies = results
-        .filter((m: any) => m && m.id && !history.includes(m.id.toString()))
-        .map((m: any) => this.mapTMDBToMovie(m));
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error("Failed to update interaction in Supabase", e);
+      return false;
+    }
+  }
 
-      return movies;
+  /**
+   * Checks for matches: finding other users who liked the same movie.
+   */
+  static async checkForMatches(movieId: string, currentUserId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('likes')
+        .select('userId')
+        .eq('movieId', movieId)
+        .eq('type', InteractionType.YES)
+        .neq('userId', currentUserId);
+      
+      if (error) throw error;
+      return data && data.length > 0;
+    } catch (e) {
+      console.error("Match check failed", e);
+      return false;
+    }
+  }
+
+  static async getDiscoverQueue(userId: string, page: number = 1): Promise<{ movies: Movie[], nextPage: number }> {
+    const interactions = await this.getInteractions(userId);
+    const history = interactions.map(i => i.movieId);
+    
+    let allFilteredMovies: Movie[] = [];
+    let currentPage = page;
+    const MAX_PAGES_TO_SCAN = 3; 
+
+    try {
+      while (allFilteredMovies.length < 10 && (currentPage - page) < MAX_PAGES_TO_SCAN) {
+        const response = await fetch(`${TMDB_BASE_URL}/movie/popular?api_key=${TMDB_API_KEY}&language=en-US&page=${currentPage}`);
+        if (!response.ok) break;
+        
+        const data = await response.json();
+        const results = data.results || [];
+        
+        const filtered = results
+          .filter((m: any) => {
+            if (!m || !m.id) return false;
+            const rtRating = Math.round((m.vote_average || 0) * 10);
+            return !history.includes(m.id.toString()) && rtRating > 65;
+          })
+          .map((m: any) => this.mapTMDBToMovie(m));
+          
+        allFilteredMovies = [...allFilteredMovies, ...filtered];
+        currentPage++;
+        
+        if (data.total_pages < currentPage) break;
+      }
+
+      return { 
+        movies: allFilteredMovies, 
+        nextPage: currentPage 
+      };
     } catch (error) {
       console.error('Error fetching discovery queue:', error);
+      return { movies: [], nextPage: page };
+    }
+  }
+
+  static async searchMovies(query: string): Promise<Partial<Movie>[]> {
+    if (!query || query.length < 2) return [];
+    try {
+      const response = await fetch(`${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`);
+      if (!response.ok) throw new Error(`TMDB Search Error`);
+      const data = await response.json();
+      if (!data || !data.results) return [];
+
+      return data.results.slice(0, 12).map((m: any) => ({
+        id: m?.id?.toString() || Math.random().toString(),
+        title: m?.title || 'Unknown Title',
+        posterUrl: m?.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster'
+      }));
+    } catch (error) {
+      console.error('Error searching movies:', error);
       return [];
     }
   }
@@ -59,19 +140,11 @@ export class MovieService {
   static async getTrendingForOnboarding(): Promise<Partial<Movie>[]> {
     try {
       const response = await fetch(`${TMDB_BASE_URL}/trending/movie/week?api_key=${TMDB_API_KEY}`);
-      if (!response.ok) {
-        throw new Error(`TMDB API Error: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`TMDB Trending Error`);
       const data = await response.json();
+      if (!data || !data.results) return [];
 
-      if (!data || !data.results) {
-        console.error("TMDB returned no results for onboarding", data);
-        return [];
-      }
-
-      const results = data.results || [];
-
-      return results.slice(0, 12).map((m: any) => ({
+      return data.results.slice(0, 12).map((m: any) => ({
         id: m?.id?.toString() || Math.random().toString(),
         title: m?.title || 'Unknown Title',
         posterUrl: m?.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster'
@@ -87,12 +160,8 @@ export class MovieService {
     try {
       const response = await fetch(`${TMDB_BASE_URL}/movie/${movieId}/videos?api_key=${TMDB_API_KEY}`);
       if (!response.ok) return null;
-      
       const data = await response.json();
-      if (!data || !data.results) return null;
-      
       const results = data.results || [];
-
       const trailer = results.find((v: any) => v && v.type === 'Trailer' && v.site === 'YouTube');
       return trailer ? trailer.key : (results[0]?.key || null);
     } catch (error) {
@@ -119,15 +188,9 @@ export class MovieService {
   }
 
   private static mapTMDBToMovie(m: any): Movie {
-    if (!m) {
-      return {
-        id: 'error', title: 'Error', description: '', posterUrl: '', backdropUrl: '', releaseYear: 0, genres: [], ratings: { rottenTomatoesCritic: 0, rottenTomatoesAudience: 0, letterboxd: 0, imdb: 0 }
-      };
-    }
-
+    if (!m) return { id: 'error', title: 'Error', description: '', posterUrl: '', backdropUrl: '', releaseYear: 0, genres: [], ratings: { rottenTomatoesCritic: 0, rottenTomatoesAudience: 0, letterboxd: 0, imdb: 0 } };
     const releaseDate = m.release_date ? new Date(m.release_date) : null;
     const releaseYear = releaseDate && !isNaN(releaseDate.getTime()) ? releaseDate.getFullYear() : 0;
-
     return {
       id: m.id?.toString() || Math.random().toString(),
       title: m.title || 'Unknown Title',

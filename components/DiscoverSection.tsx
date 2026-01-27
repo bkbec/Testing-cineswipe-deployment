@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal, Loader2 } from 'lucide-react';
 import { Movie, InteractionType } from '../types';
 import { MovieService } from '../services/movieService';
 import MovieCard from './MovieCard';
@@ -8,36 +8,51 @@ import TrailerModal from './TrailerModal';
 import FilterDrawer from './FilterDrawer';
 
 interface DiscoverSectionProps {
-  onInteraction?: () => void;
+  userId: string;
+  onInteraction?: (movieId: string, type: InteractionType) => void;
 }
 
-const DiscoverSection: React.FC<DiscoverSectionProps> = ({ onInteraction }) => {
+const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction }) => {
   const [queue, setQueue] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [nextPage, setNextPage] = useState(1);
   const [trailerMovie, setTrailerMovie] = useState<Movie | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [exitDirection, setExitDirection] = useState<{ x: number; y: number; rotate: number }>({ x: 0, y: 0, rotate: 0 });
 
-  useEffect(() => {
-    loadMovies();
-  }, []);
+  const loadMovies = useCallback(async (isInitial: boolean = true) => {
+    if (isInitial) setIsLoading(true);
+    else setIsFetchingMore(true);
 
-  const loadMovies = async () => {
-    setIsLoading(true);
     try {
-      const movies = await MovieService.getDiscoverQueue('local-user');
-      // Fix: Ensure movies is an array and filter out nulls or duplicates
+      const pageToFetch = isInitial ? 1 : nextPage;
+      const { movies, nextPage: next } = await MovieService.getDiscoverQueue(userId, pageToFetch);
+      
       const displayQueue = (movies || []).filter(m => m && m.id);
-      setQueue(displayQueue);
-      setCurrentIndex(0);
+      
+      setQueue(prev => isInitial ? displayQueue : [...prev, ...displayQueue]);
+      setNextPage(next);
+      if (isInitial) setCurrentIndex(0);
     } catch (e) {
       console.error("Discover load error", e);
-      setQueue([]);
     } finally {
       setIsLoading(false);
+      setIsFetchingMore(false);
     }
-  };
+  }, [nextPage, userId]);
+
+  useEffect(() => {
+    loadMovies(true);
+  }, []);
+
+  // Fetch more when getting close to end
+  useEffect(() => {
+    if (!isLoading && !isFetchingMore && queue.length > 0 && (queue.length - currentIndex) < 5) {
+      loadMovies(false);
+    }
+  }, [currentIndex, queue.length, isLoading, isFetchingMore, loadMovies]);
 
   const handleAction = async (type: InteractionType) => {
     const currentQueue = queue || [];
@@ -54,18 +69,17 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ onInteraction }) => {
     const currentMovie = currentQueue[currentIndex];
     if (currentMovie && currentMovie.id) {
       await MovieService.submitInteraction({
-        userId: 'local-user',
+        userId: userId,
         movieId: currentMovie.id,
         type,
         timestamp: Date.now()
       });
-      if (onInteraction) onInteraction();
+      if (onInteraction) onInteraction(currentMovie.id, type);
     }
 
     setCurrentIndex(prev => prev + 1);
   };
 
-  // Guard Clause for Loading State
   if (isLoading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8">
@@ -84,9 +98,9 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ onInteraction }) => {
   return (
     <div className="flex-1 flex flex-col w-full max-w-md mx-auto relative px-4 pb-32 pt-1">
       <div className="flex justify-between items-center mb-4 px-4">
-        <div>
-          <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-0.5 block">Your Feed</span>
+        <div className="flex items-baseline gap-2">
           <h2 className="text-xl font-black text-white tracking-tighter">Discover</h2>
+          {isFetchingMore && <Loader2 className="w-3 h-3 text-[#DE3151] animate-spin" />}
         </div>
         <motion.button 
           whileTap={{ scale: 0.95 }}
@@ -98,8 +112,8 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ onInteraction }) => {
       </div>
 
       <div className="relative flex-1">
-        <AnimatePresence mode="wait">
-          {isEmpty ? (
+        <AnimatePresence mode="popLayout">
+          {isEmpty && !isFetchingMore ? (
             <motion.div 
               key="empty"
               initial={{ opacity: 0, scale: 0.9 }} 
@@ -113,34 +127,36 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ onInteraction }) => {
                 <p className="text-zinc-500 font-medium mb-10 leading-relaxed">You've reached the end of today's queue. Ready for more?</p>
               </div>
               <button 
-                onClick={loadMovies}
+                onClick={() => loadMovies(true)}
                 className="w-full bg-[#DE3151] text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-2xl shadow-[#DE3151]/30 hover:brightness-110 active:scale-95 transition-all"
               >
                 Reload Feed
               </button>
             </motion.div>
           ) : (
-            <motion.div
-              key={currentQueue[currentIndex]?.id}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ 
-                x: exitDirection.x, 
-                y: exitDirection.y, 
-                rotate: exitDirection.rotate, 
-                opacity: 0,
-                transition: { duration: 0.4, ease: "easeIn" } 
-              }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="absolute inset-0"
-            >
-              <MovieCard 
-                movie={currentQueue[currentIndex]}
-                isTop={true}
-                onAction={handleAction}
-                onWatchTrailer={() => setTrailerMovie(currentQueue[currentIndex])}
-              />
-            </motion.div>
+            currentQueue[currentIndex] && (
+              <motion.div
+                key={currentQueue[currentIndex].id}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ 
+                  x: exitDirection.x, 
+                  y: exitDirection.y, 
+                  rotate: exitDirection.rotate, 
+                  opacity: 0,
+                  transition: { duration: 0.4, ease: "easeIn" } 
+                }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                className="absolute inset-0"
+              >
+                <MovieCard 
+                  movie={currentQueue[currentIndex]}
+                  isTop={true}
+                  onAction={handleAction}
+                  onWatchTrailer={() => setTrailerMovie(currentQueue[currentIndex])}
+                />
+              </motion.div>
+            )
           )}
         </AnimatePresence>
       </div>

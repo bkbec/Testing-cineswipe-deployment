@@ -33,6 +33,8 @@ export interface UserInteraction {
   movieId: string;
   type: InteractionType;
   timestamp: number;
+  personalRating?: number; // 1-5
+  notes?: string;
 }
 
 export type OnboardingStep = 'GENRES' | 'ANCHORS' | 'FILTERS' | 'LETTERBOXD' | 'COMPLETE';
