@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, LogOut, Plus, Loader2 } from 'lucide-react';
+import { Sparkles, LogOut, Plus, Loader2, Play } from 'lucide-react';
 import Logo from './components/Logo';
 import DiscoverSection from './components/DiscoverSection';
 import BottomNav from './components/BottomNav';
@@ -10,9 +10,11 @@ import ProfileSection from './components/ProfileSection';
 import WatchedHistoryView from './components/WatchedHistoryView';
 import { MovieService } from './services/movieService';
 import { Movie, InteractionType, OnboardingData, UserProfile } from './types';
+import { APP_VERSION } from './constants';
 
 const App: React.FC = () => {
   const [userName, setUserName] = useState<string | null>(() => localStorage.getItem('user_name'));
+  const [showStartPage, setShowStartPage] = useState(!localStorage.getItem('user_name'));
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [activeTab, setActiveTab] = useState('discover');
   const [isViewingAllWatched, setIsViewingAllWatched] = useState(false);
@@ -90,6 +92,7 @@ const App: React.FC = () => {
     localStorage.removeItem('user_name');
     setUserName(null);
     setHasOnboarded(false);
+    setShowStartPage(true);
     setActiveTab('discover');
   };
 
@@ -111,7 +114,6 @@ const App: React.FC = () => {
     });
 
     if (success) {
-      // 1. Seed Masterpieces (Liked)
       if (onboardingData.masterpieces?.length > 0) {
         const masterpieces = await MovieService.getTrendingForOnboarding();
         for (const mId of onboardingData.masterpieces) {
@@ -128,7 +130,6 @@ const App: React.FC = () => {
         }
       }
 
-      // 2. Seed AI-Detected Movies (Watched)
       if (onboardingData.detectedWatchedMovies && onboardingData.detectedWatchedMovies.length > 0) {
         for (const movie of onboardingData.detectedWatchedMovies) {
           if (!movie.id) continue;
@@ -167,7 +168,43 @@ const App: React.FC = () => {
     }
   }, [userName]);
 
-  // PROFILE SELECTION OVERLAY
+  const currentProfile = profiles.find(p => p.username === userName);
+
+  // START PAGE / SPLASH
+  if (showStartPage && !userName) {
+    return (
+      <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8 overflow-hidden">
+        <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-[#DE3151]/10 blur-[150px] pointer-events-none rounded-full animate-pulse" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[600px] h-[600px] bg-white/5 blur-[150px] pointer-events-none rounded-full" />
+        
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center relative z-10"
+        >
+          <Logo className="w-32 h-32 mx-auto mb-10 drop-shadow-[0_0_30px_rgba(222,49,81,0.6)]" />
+          <h1 className="text-6xl font-black text-white tracking-tighter uppercase mb-2 italic">CineMatch</h1>
+          <p className="text-zinc-500 font-bold uppercase tracking-[0.4em] text-[10px] mb-12">Personalized Discovery</p>
+          
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowStartPage(false)}
+            className="group relative px-12 py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-[0_0_40px_rgba(222,49,81,0.3)] flex items-center gap-4 transition-all hover:brightness-110"
+          >
+            <Play className="w-4 h-4 fill-white" />
+            Enter Theater
+          </motion.button>
+        </motion.div>
+
+        <div className="absolute bottom-12 left-0 right-0 text-center">
+          <span className="text-[9px] font-black text-zinc-800 uppercase tracking-[0.5em]">Build Version {APP_VERSION}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ONBOARDING / PROFILE SELECTION
   if (!userName || userName === '__PENDING__') {
     if (userName === '__PENDING__') {
        return <Onboarding onComplete={handleOnboardingComplete} />;
@@ -258,8 +295,6 @@ const App: React.FC = () => {
       </div>
     );
   };
-
-  const currentProfile = profiles.find(p => p.username === userName);
 
   return (
     <div className="h-[100vh] w-full flex flex-col bg-black overflow-hidden relative selection:bg-[#DE3151]/30 text-white">
