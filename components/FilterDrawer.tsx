@@ -1,14 +1,32 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, SlidersHorizontal, Sparkles, X, ChevronDown } from 'lucide-react';
+import { DiscoveryFilters } from '../types';
 
 interface FilterDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  currentFilters?: DiscoveryFilters;
+  onApply?: (filters: DiscoveryFilters) => void;
 }
 
-const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose }) => {
+const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFilters, onApply }) => {
+  const [localFilters, setLocalFilters] = useState<DiscoveryFilters>(currentFilters || {
+    genre: '',
+    mood: '',
+    maxRuntime: 120,
+    wildcard: false
+  });
+
+  const handleApply = () => {
+    if (onApply) onApply({ ...localFilters, wildcard: false });
+  };
+
+  const handleSurprise = () => {
+    if (onApply) onApply({ ...localFilters, wildcard: true });
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -55,41 +73,37 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose }) => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-zinc-900 p-5 rounded-[1.5rem] border border-zinc-800 flex flex-col gap-2 group hover:border-zinc-700 transition-colors">
                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest flex items-center gap-2">Genre <ChevronDown className="w-3 h-3 text-[#DE3151]" /></label>
-                  <select className="w-full bg-transparent text-sm font-black text-white outline-none cursor-pointer appearance-none pr-6">
+                  <select 
+                    value={localFilters.genre}
+                    onChange={(e) => setLocalFilters(prev => ({ ...prev, genre: e.target.value }))}
+                    className="w-full bg-transparent text-sm font-black text-white outline-none cursor-pointer appearance-none pr-6"
+                  >
                     <option value="">Any Genre</option>
-                    <option value="action">Action</option>
-                    <option value="adventure">Adventure</option>
-                    <option value="animation">Animation</option>
-                    <option value="comedy">Comedy</option>
-                    <option value="crime">Crime</option>
-                    <option value="documentary">Documentary</option>
-                    <option value="drama">Drama</option>
-                    <option value="fantasy">Fantasy</option>
-                    <option value="horror">Horror</option>
-                    <option value="indie">Indie</option>
-                    <option value="mystery">Mystery</option>
-                    <option value="romance">Romance</option>
-                    <option value="sci-fi">Sci-Fi</option>
-                    <option value="thriller">Thriller</option>
-                    <option value="western">Western</option>
+                    <option value="Action">Action</option>
+                    <option value="Comedy">Comedy</option>
+                    <option value="Documentary">Documentary</option>
+                    <option value="Drama">Drama</option>
+                    <option value="Fantasy">Fantasy</option>
+                    <option value="Horror">Horror</option>
+                    <option value="Romance">Romance</option>
+                    <option value="Science Fiction">Sci-Fi</option>
+                    <option value="Thriller">Thriller</option>
                   </select>
                 </div>
                 <div className="bg-zinc-900 p-5 rounded-[1.5rem] border border-zinc-800 flex flex-col gap-2 group hover:border-zinc-700 transition-colors">
                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest flex items-center gap-2">Mood <ChevronDown className="w-3 h-3 text-[#DE3151]" /></label>
-                  <select className="w-full bg-transparent text-sm font-black text-white outline-none cursor-pointer appearance-none pr-6">
+                  <select 
+                    value={localFilters.mood}
+                    onChange={(e) => setLocalFilters(prev => ({ ...prev, mood: e.target.value }))}
+                    className="w-full bg-transparent text-sm font-black text-white outline-none cursor-pointer appearance-none pr-6"
+                  >
                     <option value="">Any Mood</option>
-                    <option value="heartwarming">Heartwarming</option>
-                    <option value="intense">Intense</option>
-                    <option value="mind-bend">Mind-bending</option>
-                    <option value="gritty">Dark & Gritty</option>
-                    <option value="nostalgic">Nostalgic</option>
-                    <option value="romantic">Romantic</option>
-                    <option value="uplifting">Feel-Good</option>
-                    <option value="melancholic">Melancholic</option>
-                    <option value="epic">Epic Scale</option>
-                    <option value="suspenseful">Suspenseful</option>
-                    <option value="quirky">Quirky & Odd</option>
-                    <option value="thoughtful">Thought-Provoking</option>
+                    <option value="Heartwarming">Heartwarming</option>
+                    <option value="Intense">Intense</option>
+                    <option value="Mind-bending">Mind-bending</option>
+                    <option value="Dark">Dark & Gritty</option>
+                    <option value="Romantic">Romantic</option>
+                    <option value="Feel-Good">Feel-Good</option>
                   </select>
                 </div>
               </div>
@@ -97,21 +111,36 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose }) => {
               <div className="bg-zinc-900 p-5 rounded-[1.5rem] border border-zinc-800 flex flex-col gap-2 group hover:border-zinc-700 transition-colors">
                 <div className="flex justify-between items-center mb-1">
                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Max Runtime</label>
-                  <span className="text-[10px] font-black text-[#DE3151] uppercase tracking-widest">Under 120m</span>
+                  <span className="text-[10px] font-black text-[#DE3151] uppercase tracking-widest">Under {localFilters.maxRuntime}m</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <input type="range" className="accent-[#DE3151] w-full" min="60" max="240" step="15" defaultValue="120" />
+                  <input 
+                    type="range" 
+                    className="accent-[#DE3151] w-full cursor-pointer" 
+                    min="60" 
+                    max="240" 
+                    step="15" 
+                    value={localFilters.maxRuntime} 
+                    onChange={(e) => setLocalFilters(prev => ({ ...prev, maxRuntime: parseInt(e.target.value) }))}
+                  />
                 </div>
               </div>
 
-              {/* Surprise Me */}
-              <button 
-                onPointerDown={() => { alert("Breaking Algorithm Boundaries..."); onClose(); }}
-                className="w-full py-6 bg-gradient-to-r from-[#DE3151] to-[#FF5E62] text-white rounded-3xl font-black text-sm uppercase tracking-[0.3em] flex items-center justify-center gap-4 hover:brightness-110 shadow-2xl shadow-[#DE3151]/20 transition-all active:scale-[0.98]"
-              >
-                <Sparkles className="w-6 h-6 animate-pulse" />
-                Surprise Me (Wildcard)
-              </button>
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleApply}
+                  className="w-full py-5 bg-zinc-100 text-black rounded-3xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:brightness-110 active:scale-[0.98] transition-all"
+                >
+                  Apply Filters
+                </button>
+                <button 
+                  onPointerDown={handleSurprise}
+                  className="w-full py-6 bg-gradient-to-r from-[#DE3151] to-[#FF5E62] text-white rounded-3xl font-black text-xs uppercase tracking-[0.3em] flex items-center justify-center gap-4 hover:brightness-110 shadow-2xl shadow-[#DE3151]/20 transition-all active:scale-[0.98]"
+                >
+                  <Sparkles className="w-6 h-6 animate-pulse" />
+                  Surprise Me (AI Wildcard)
+                </button>
+              </div>
             </div>
           </motion.div>
         </>

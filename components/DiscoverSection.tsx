@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SlidersHorizontal, Loader2 } from 'lucide-react';
-import { Movie, InteractionType } from '../types';
+import { Movie, InteractionType, DiscoveryFilters } from '../types';
 import { MovieService } from '../services/movieService';
 import MovieCard from './MovieCard';
 import TrailerModal from './TrailerModal';
@@ -22,33 +22,49 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   const [trailerMovie, setTrailerMovie] = useState<Movie | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [exitDirection, setExitDirection] = useState<{ x: number; y: number; rotate: number }>({ x: 0, y: 0, rotate: 0 });
+  const [filters, setFilters] = useState<DiscoveryFilters>({
+    genre: '',
+    mood: '',
+    maxRuntime: 120,
+    wildcard: false
+  });
 
-  const loadMovies = useCallback(async (isInitial: boolean = true) => {
-    if (isInitial) setIsLoading(true);
-    else setIsFetchingMore(true);
+  const loadMovies = useCallback(async (isInitial: boolean = true, currentFilters?: DiscoveryFilters) => {
+    if (isInitial) {
+      setIsLoading(true);
+      setCurrentIndex(0);
+      setNextPage(1);
+    } else {
+      setIsFetchingMore(true);
+    }
 
     try {
+      const activeFilters = currentFilters || filters;
       const pageToFetch = isInitial ? 1 : nextPage;
-      const { movies, nextPage: next } = await MovieService.getDiscoverQueue(userId, pageToFetch);
+      const { movies, nextPage: next } = await MovieService.getDiscoverQueue(userId, pageToFetch, activeFilters);
       
       const displayQueue = (movies || []).filter(m => m && m.id);
       
       setQueue(prev => isInitial ? displayQueue : [...prev, ...displayQueue]);
       setNextPage(next);
-      if (isInitial) setCurrentIndex(0);
     } catch (e) {
       console.error("Discover load error", e);
     } finally {
       setIsLoading(false);
       setIsFetchingMore(false);
     }
-  }, [nextPage, userId]);
+  }, [nextPage, userId, filters]);
 
   useEffect(() => {
     loadMovies(true);
   }, []);
 
-  // Fetch more when getting close to end
+  const handleApplyFilters = (newFilters: DiscoveryFilters) => {
+    setFilters(newFilters);
+    setIsFilterOpen(false);
+    loadMovies(true, newFilters);
+  };
+
   useEffect(() => {
     if (!isLoading && !isFetchingMore && queue.length > 0 && (queue.length - currentIndex) < 5) {
       loadMovies(false);
@@ -78,7 +94,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
         posterUrl: currentMovie.posterUrl,
         type,
         timestamp: Date.now(),
-        notes: '' // Explicitly sending empty string as per requirement
+        notes: ''
       });
       if (onInteraction) onInteraction(safeMovieId, type);
     }
@@ -93,7 +109,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
           <div className="absolute inset-0 border-4 border-[#DE3151]/10 rounded-full" />
           <div className="absolute inset-0 border-4 border-[#DE3151] border-t-transparent rounded-full animate-spin" />
         </div>
-        <p className="mt-8 text-[#DE3151] font-black uppercase tracking-[0.5em] text-[10px]">Scanning for Movies...</p>
+        <p className="mt-8 text-[#DE3151] font-black uppercase tracking-[0.5em] text-[10px]">Improving recommendations...</p>
       </div>
     );
   }
@@ -177,6 +193,8 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       <FilterDrawer 
         isOpen={isFilterOpen} 
         onClose={() => setIsFilterOpen(false)} 
+        currentFilters={filters}
+        onApply={handleApplyFilters}
       />
     </div>
   );

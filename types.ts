@@ -64,3 +64,10 @@ export interface UserProfile {
   avatar_url: string;
   isOnboarded?: boolean;
 }
+
+export interface DiscoveryFilters {
+  genre?: string;
+  mood?: string;
+  maxRuntime?: number;
+  wildcard?: boolean;
+}

@@ -1,5 +1,5 @@
 
-import { Movie, InteractionType, UserInteraction, UserProfile } from '../types';
+import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters } from '../types';
 import { supabase } from '../lib/supabase';
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -8,61 +8,121 @@ const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee';
 
 export class MovieService {
   /**
-   * Gemini Vision for Screenshot Sync
+   * AI Taste Analysis
+   * Summarizes user behavior to drive better discovery
    */
-  static async syncWatchedListFromImage(base64Image: string): Promise<Partial<Movie>[]> {
+  private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
     try {
+      const interactions = await this.getInteractions(userId);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const cleanBase64 = base64Image.split(',')[1] || base64Image;
+      
+      const likes = interactions.filter(i => i.type === InteractionType.YES).map(i => i.title);
+      const highRated = interactions.filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
+        .map(i => `${i.title} (${i.personalRating} stars, Notes: ${i.notes || 'N/A'})`);
+
+      const prompt = `You are a cinematic taste expert. Analyze this user's profile to find their next favorite movies.
+      
+      Liked Movies: ${likes.join(', ')}
+      Highly Rated Watched Movies: ${highRated.join(' | ')}
+      
+      Current Request Context:
+      Mood: ${filters?.mood || 'Any'}
+      Target Genre: ${filters?.genre || 'Any'}
+      Wildcard Mode: ${filters?.wildcard ? 'YES (Find something different but still matching their quality bar)' : 'NO (Stay in their comfort zone)'}
+
+      Task:
+      1. Identify the core "DNA" of their taste.
+      2. Suggest 10 specific movie titles they likely haven't seen but would love.
+      3. Provide TMDB Genre IDs to filter for.
+      
+      Return as JSON.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [
-          {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: 'image/jpeg',
-                  data: cleanBase64,
-                },
-              },
-              {
-                text: "Analyze this screenshot of movie posters or a Letterboxd list. Extract the titles of all movies you see. Return the titles as a JSON array of strings. Only return the JSON.",
-              },
-            ],
-          },
-        ],
+        contents: prompt,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              titles: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING }
-              }
+              suggested_titles: { type: Type.ARRAY, items: { type: Type.STRING } },
+              genre_ids: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+              reasoning: { type: Type.STRING }
             },
-            required: ["titles"]
+            required: ["suggested_titles", "genre_ids"]
           }
         }
       });
 
-      const jsonStr = response.text || '{"titles": []}';
-      const { titles } = JSON.parse(jsonStr);
-      
-      if (!titles || titles.length === 0) return [];
+      return JSON.parse(response.text || '{}');
+    } catch (e) {
+      console.error("Taste analysis failed:", e);
+      return null;
+    }
+  }
 
-      const movies = await Promise.all(
-        titles.slice(0, 20).map(async (title: string) => {
-          const results = await this.searchMovies(title);
-          return results && results.length > 0 ? results[0] : null;
-        })
+  /**
+   * Discovery Algorithm
+   */
+  static async getDiscoverQueue(userId: string, page: number = 1, filters?: DiscoveryFilters): Promise<{ movies: Movie[], nextPage: number }> {
+    try {
+      const interactions = await this.getInteractions(userId);
+      const swipedIds = new Set(interactions.map(i => String(i.movieId)));
+      
+      // Perform AI Taste Analysis on Page 1 or if filters changed
+      const taste = (page === 1 || filters?.wildcard) ? await this.analyzeTaste(userId, filters) : null;
+      
+      let candidateMovies: Movie[] = [];
+
+      // Source 1: Gemini's direct recommendations
+      if (taste?.suggested_titles?.length > 0) {
+        const aiMovies = await Promise.all(
+          taste.suggested_titles.map(async (title: string) => {
+            const results = await this.searchMovies(title);
+            return results && results.length > 0 ? results[0] : null;
+          })
+        );
+        const detailedAiMovies = await this.getMoviesByIds(aiMovies.filter(m => m && m.id).map(m => m!.id!));
+        candidateMovies.push(...detailedAiMovies);
+      }
+
+      // Source 2: TMDB Discover with AI-refined parameters
+      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&language=en-US`;
+      
+      if (taste?.genre_ids?.length > 0) {
+        discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
+      } else if (filters?.genre) {
+        // Map common strings to IDs if taste fails
+        const genreMap: Record<string, number> = { 'action': 28, 'comedy': 35, 'horror': 27, 'sci-fi': 878, 'romance': 10749 };
+        if (genreMap[filters.genre.toLowerCase()]) {
+          discoverUrl += `&with_genres=${genreMap[filters.genre.toLowerCase()]}`;
+        }
+      }
+
+      if (filters?.maxRuntime) {
+        discoverUrl += `&with_runtime.lte=${filters.maxRuntime}`;
+      }
+
+      const res = await fetch(discoverUrl);
+      const data = await res.json();
+      const discovered = (data.results || []).map((m: any) => this.mapTMDBToMovie(m));
+      candidateMovies.push(...discovered);
+
+      // Clean, filter duplicates/swipes, and sort
+      const filtered = candidateMovies.filter((m, index, self) => 
+        m && m.id && 
+        !swipedIds.has(m.id) &&
+        self.findIndex(t => t.id === m.id) === index
       );
 
-      return movies.filter((m): m is Partial<Movie> => m !== null && m.id !== undefined);
-    } catch (e) {
-      console.error("AI Sync failed:", e);
-      return [];
+      return { 
+        movies: filtered, 
+        nextPage: page + 1 
+      };
+    } catch (error) {
+      console.error("Discover load error", error);
+      return { movies: [], nextPage: page };
     }
   }
 
@@ -71,10 +131,7 @@ export class MovieService {
    */
   static async getAllProfiles(): Promise<UserProfile[]> {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*');
-      
+      const { data, error } = await supabase.from('profiles').select('*');
       if (error) throw error;
       return (data || []).map(p => ({
         username: p.username,
@@ -83,44 +140,29 @@ export class MovieService {
         isOnboarded: true
       }));
     } catch (e) {
-      console.error("Fetch profiles failed:", e);
       return [];
     }
   }
 
   static async saveProfile(profile: UserProfile): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
+      const { error } = await supabase.from('profiles').upsert({
           username: profile.username,
           full_name: profile.full_name,
           avatar_url: profile.avatar_url
         }, { onConflict: 'username' });
-      
-      if (error) throw error;
-      return true;
+      return !error;
     } catch (e) {
-      console.error("Save profile failed:", e);
       return false;
     }
   }
 
   static async deleteProfile(username: string): Promise<boolean> {
     try {
-      // 1. Delete associated swipes first to maintain clean data
       await supabase.from('swipes').delete().eq('user_name', username);
-      
-      // 2. Delete the profile itself
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('username', username);
-      
-      if (error) throw error;
-      return true;
+      const { error } = await supabase.from('profiles').delete().eq('username', username);
+      return !error;
     } catch (e) {
-      console.error("Delete profile failed:", e);
       return false;
     }
   }
@@ -128,63 +170,41 @@ export class MovieService {
   static async uploadAvatar(username: string, file: File): Promise<string | null> {
     try {
       const fileName = `${username}-${Date.now()}`;
-      const { data, error } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file);
-      
+      const { error } = await supabase.storage.from('avatars').upload(fileName, file);
       if (error) throw error;
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
-      
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
       return publicUrl;
     } catch (e) {
-      console.error("Upload avatar failed:", e);
       return null;
     }
   }
 
-  /**
-   * Interations Management
-   */
   private static mapFromDb(item: any): UserInteraction {
     return {
       userId: item.user_name,
-      user_name: item.user_name,
       movieId: String(item.movie_id),
-      movie_id: String(item.movie_id),
-      title: item.title,
-      movie_title: item.movie_title,
-      posterUrl: item.poster_url,
-      poster_url: item.poster_url,
-      poster_path: item.poster_path,
-      type: item.type as InteractionType,
-      swipe_type: item.swipe_type as InteractionType,
+      title: item.movie_title || item.title,
+      posterUrl: item.poster_url || item.poster_path,
+      type: item.swipe_type as InteractionType || item.type as InteractionType,
       timestamp: item.timestamp,
       personalRating: item.personal_rating,
-      personal_rating: item.personal_rating,
       notes: item.notes
     };
   }
 
   private static mapToDb(interaction: UserInteraction): any {
-    const ts = interaction.timestamp || Date.now();
-    const type = interaction.type;
-    const mid = String(interaction.movieId);
     const title = interaction.title || interaction.movie_title || '';
     const purl = interaction.posterUrl || interaction.poster_url || '';
-
     return {
       user_name: interaction.userId,
-      movie_id: mid,
+      movie_id: String(interaction.movieId),
       movie_title: title,
       title: title,
-      swipe_type: type,
-      type: type,
+      swipe_type: interaction.type,
+      type: interaction.type,
       poster_path: purl,
       poster_url: purl,
-      timestamp: ts,
+      timestamp: interaction.timestamp || Date.now(),
       personal_rating: interaction.personalRating ?? null,
       notes: interaction.notes ?? null
     };
@@ -192,11 +212,7 @@ export class MovieService {
 
   static async getInteractions(userId: string): Promise<UserInteraction[]> {
     try {
-      const { data, error } = await supabase
-        .from('swipes')
-        .select('*')
-        .eq('user_name', userId);
-      
+      const { data, error } = await supabase.from('swipes').select('*').eq('user_name', userId);
       if (error) return [];
       return (data || []).map(item => this.mapFromDb(item));
     } catch (e) {
@@ -206,44 +222,22 @@ export class MovieService {
 
   static async getSharedMatches(userId: string): Promise<Movie[]> {
     try {
-      const { data: myLikes } = await supabase
-        .from('swipes')
-        .select('movie_id')
-        .eq('user_name', userId)
-        .eq('swipe_type', InteractionType.YES);
-
+      const { data: myLikes } = await supabase.from('swipes').select('movie_id').eq('user_name', userId).eq('swipe_type', InteractionType.YES);
       if (!myLikes || myLikes.length === 0) return [];
       const myLikeIds = (myLikes as any[]).map(l => String(l.movie_id));
-
-      const { data: othersLikes } = await supabase
-        .from('swipes')
-        .select('movie_id')
-        .in('movie_id', myLikeIds)
-        .eq('swipe_type', InteractionType.YES)
-        .neq('user_name', userId);
-
+      const { data: othersLikes } = await supabase.from('swipes').select('movie_id').in('movie_id', myLikeIds).eq('swipe_type', InteractionType.YES).neq('user_name', userId);
       if (!othersLikes || othersLikes.length === 0) return [];
-
       const sharedIds = Array.from(new Set((othersLikes as any[]).map(l => String(l.movie_id))));
       return await this.getMoviesByIds(sharedIds);
     } catch (e) {
-      console.error("Shared matches fetch failed", e);
       return [];
     }
   }
 
   static async submitInteraction(interaction: UserInteraction): Promise<boolean> {
     try {
-      const payload = this.mapToDb(interaction);
-      const { error } = await supabase
-        .from('swipes')
-        .upsert([payload], { onConflict: 'user_name,movie_id' });
-      
-      if (error) {
-        console.error("Supabase interaction save error:", error);
-        return false;
-      }
-      return true;
+      const { error } = await supabase.from('swipes').upsert([this.mapToDb(interaction)], { onConflict: 'user_name,movie_id' });
+      return !error;
     } catch (e) {
       return false;
     }
@@ -252,22 +246,14 @@ export class MovieService {
   static async updateInteraction(userId: string, movieId: string, updates: Partial<UserInteraction>): Promise<boolean> {
     try {
       const dbUpdates: any = {};
-      if (updates.personalRating !== undefined) {
-        dbUpdates.personal_rating = updates.personalRating;
-      }
+      if (updates.personalRating !== undefined) dbUpdates.personal_rating = updates.personalRating;
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
       if (updates.type !== undefined) {
         dbUpdates.type = updates.type;
         dbUpdates.swipe_type = updates.type;
       }
-
-      const { error } = await supabase
-        .from('swipes')
-        .update(dbUpdates)
-        .match({ user_name: userId, movie_id: String(movieId) });
-      
-      if (error) return false;
-      return true;
+      const { error } = await supabase.from('swipes').update(dbUpdates).match({ user_name: userId, movie_id: String(movieId) });
+      return !error;
     } catch (e) {
       return false;
     }
@@ -275,45 +261,10 @@ export class MovieService {
 
   static async checkForMatches(movieId: string, currentUserId: string): Promise<boolean> {
     try {
-      const { data, error } = await supabase
-        .from('swipes')
-        .select('user_name')
-        .eq('movie_id', String(movieId))
-        .eq('swipe_type', InteractionType.YES)
-        .neq('user_name', currentUserId);
-      
-      if (error) return false;
-      return data && data.length > 0;
+      const { data, error } = await supabase.from('swipes').select('user_name').eq('movie_id', String(movieId)).eq('swipe_type', InteractionType.YES).neq('user_name', currentUserId);
+      return !!(data && data.length > 0);
     } catch (e) {
       return false;
-    }
-  }
-
-  static async getDiscoverQueue(userId: string, page: number = 1): Promise<{ movies: Movie[], nextPage: number }> {
-    const interactions = await this.getInteractions(userId);
-    const historyIds = interactions.map(i => String(i.movieId));
-    
-    let candidateMovies: Movie[] = [];
-    
-    try {
-      let url = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100`;
-      const res = await fetch(url);
-      const data = await res.json();
-      candidateMovies = (data.results || []).map((m: any) => this.mapTMDBToMovie(m));
-
-      const filtered = candidateMovies.filter((m, index, self) => 
-        m && 
-        m.id && 
-        !historyIds.includes(String(m.id)) &&
-        self.findIndex(t => t.id === m.id) === index
-      );
-
-      return { 
-        movies: filtered.slice(0, 20), 
-        nextPage: page + 1 
-      };
-    } catch (error) {
-      return { movies: [], nextPage: page };
     }
   }
 
@@ -376,7 +327,7 @@ export class MovieService {
       releaseYear: m.release_date ? new Date(m.release_date).getFullYear() : 0,
       posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster',
       backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
-      genres: m.genre_ids ? [] : (m.genres ? m.genres.map((g: any) => g.name) : []),
+      genres: m.genres ? m.genres.map((g: any) => g.name) : [],
       ratings: {
         rottenTomatoesCritic: Math.round((m.vote_average || 0) * 10),
         rottenTomatoesAudience: Math.round((m.vote_average || 0) * 10 + 2),
