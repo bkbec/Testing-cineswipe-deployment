@@ -13,10 +13,23 @@ import { Movie, InteractionType, OnboardingData, UserProfile } from './types';
 import { APP_VERSION } from './constants';
 
 const App: React.FC = () => {
-  // To "start from scratch", we clear local storage for the current session on first load
-  // and initialize the state as if no one is logged in.
-  const [userName, setUserName] = useState<string | null>(null);
-  const [showStartPage, setShowStartPage] = useState(true);
+  // Logic to handle "Reset Only Once" per version bump
+  const [userName, setUserName] = useState<string | null>(() => {
+    const resetKey = `has_reset_to_${APP_VERSION}`;
+    const hasAlreadyReset = localStorage.getItem(resetKey);
+
+    if (!hasAlreadyReset) {
+      // First time loading this version: Clear existing session for fresh onboarding
+      localStorage.removeItem('user_name');
+      localStorage.setItem(resetKey, 'true');
+      return null;
+    }
+
+    // Subsequent loads: Return the stored profile if available
+    return localStorage.getItem('user_name');
+  });
+
+  const [showStartPage, setShowStartPage] = useState(!userName);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [activeTab, setActiveTab] = useState('discover');
   const [isViewingAllWatched, setIsViewingAllWatched] = useState(false);
@@ -26,18 +39,16 @@ const App: React.FC = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
 
-  useEffect(() => {
-    // Perform a one-time clear of local storage to satisfy the "start from scratch" request
-    localStorage.removeItem('user_name');
-    refreshProfiles();
-  }, []);
-
   const refreshProfiles = async () => {
     setIsLoadingProfiles(true);
     const data = await MovieService.getAllProfiles();
     setProfiles(data);
     setIsLoadingProfiles(false);
   };
+
+  useEffect(() => {
+    refreshProfiles();
+  }, []);
 
   useEffect(() => {
     if (userName && userName !== '__PENDING__') {
