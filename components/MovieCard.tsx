@@ -57,7 +57,8 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
         transition={{ type: 'spring', stiffness: 120, damping: 22 }}
       >
         {/* FRONT SIDE */}
-        <div 
+        {/* Fix: Changed div to motion.div to support onTap property */}
+        <motion.div 
           className="absolute inset-0 bg-zinc-900 rounded-[1.5rem] overflow-hidden shadow-2xl border border-white/5 flex flex-col"
           style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
           onPointerDown={(e) => isFlipped && e.stopPropagation()}
@@ -157,10 +158,11 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
                </button>
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* BACK SIDE */}
-        <div 
+        {/* Fix: Changed div to motion.div to support onTap property */}
+        <motion.div 
           className="absolute inset-0 bg-zinc-900 rounded-[1.5rem] overflow-hidden shadow-2xl border border-white/10 flex flex-col"
           style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
           onTap={handleTap}
@@ -223,7 +225,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
                </button>
             </div>
           </div>
-        </div>
+        </motion.div>
       </motion.div>
     </div>
   );

@@ -55,7 +55,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     }
   }, [currentIndex, queue.length, isLoading, isFetchingMore, loadMovies]);
 
-  const handleAction = async (type: InteractionType) => {
+  const handleSwipe = async (type: InteractionType) => {
     const currentQueue = queue || [];
     if (currentIndex >= currentQueue.length) return;
 
@@ -69,7 +69,6 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
 
     const currentMovie = currentQueue[currentIndex];
     if (currentMovie && currentMovie.id) {
-      // Explicitly convert movie_id to string as requested
       const safeMovieId = String(currentMovie.id);
       
       await MovieService.submitInteraction({
@@ -78,7 +77,8 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
         title: currentMovie.title,
         posterUrl: currentMovie.posterUrl,
         type,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        notes: '' // Explicitly sending empty string as per requirement
       });
       if (onInteraction) onInteraction(safeMovieId, type);
     }
@@ -158,7 +158,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
                 <MovieCard 
                   movie={currentQueue[currentIndex]}
                   isTop={true}
-                  onAction={handleAction}
+                  onAction={handleSwipe}
                   onWatchTrailer={() => setTrailerMovie(currentQueue[currentIndex])}
                 />
               </motion.div>

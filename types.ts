@@ -30,20 +30,37 @@ export enum InteractionType {
 
 export interface UserInteraction {
   userId: string;
-  user_name?: string;   // Added for DB constraint requirements
+  user_name?: string;
   movieId: string;
-  title?: string;       
-  posterUrl?: string;   
+  movie_id?: string;
+  title?: string;
+  movie_title?: string;
+  posterUrl?: string;
+  poster_url?: string;
+  poster_path?: string;
   type: InteractionType;
+  swipe_type?: InteractionType;
   timestamp: number;
   personalRating?: number; 
+  personal_rating?: number;
   notes?: string;
 }
 
-export type OnboardingStep = 'GENRES' | 'ANCHORS' | 'FILTERS' | 'LETTERBOXD' | 'COMPLETE';
+export type OnboardingStep = 'IDENTITY' | 'PHOTO' | 'GENRES' | 'ANCHORS' | 'FILTERS' | 'LETTERBOXD' | 'COMPLETE';
 
 export interface OnboardingData {
+  name: string;
+  photoFile: File | null;
+  photoPreview: string | null;
   genres: string[];
   masterpieces: string[];
   filters: string[];
+  detectedWatchedMovies?: Partial<Movie>[];
+}
+
+export interface UserProfile {
+  username: string;
+  full_name: string;
+  avatar_url: string;
+  isOnboarded?: boolean;
 }
