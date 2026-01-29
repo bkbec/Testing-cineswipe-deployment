@@ -266,8 +266,38 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 exit={{ opacity: 0, x: -20 }}
                 className="absolute inset-0 flex flex-col"
               >
-                <h2 className="text-4xl font-black mb-2 text-white tracking-tight uppercase">Masterpieces</h2>
-                <p className="text-zinc-400 mb-6 font-medium">Select films you adore.</p>
+                <div className="shrink-0 mb-4">
+                  <h2 className="text-4xl font-black mb-1 text-white tracking-tight uppercase">Masterpieces</h2>
+                  <p className="text-zinc-400 font-medium">Select films you adore.</p>
+                </div>
+
+                {/* Persistent Selected Shelf */}
+                <div className={`shrink-0 mb-4 transition-all duration-500 ${selectedMoviesDetails.length > 0 ? 'h-24 opacity-100' : 'h-0 opacity-0 overflow-hidden'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase text-[#DE3151] tracking-widest">Your Picks ({selectedMoviesDetails.length})</span>
+                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Tap to remove</span>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                    <AnimatePresence mode="popLayout">
+                      {selectedMoviesDetails.map(m => (
+                        <motion.button
+                          key={`shelf-${m.id}`}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          exit={{ scale: 0, opacity: 0 }}
+                          onClick={() => toggleMasterpiece(m)}
+                          className="relative shrink-0 w-12 aspect-[2/3] rounded-lg overflow-hidden border-2 border-[#DE3151] shadow-lg shadow-[#DE3151]/10"
+                        >
+                          <img src={m.posterUrl} className="w-full h-full object-cover" alt={m.title} />
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                            <X className="w-4 h-4 text-white" />
+                          </div>
+                        </motion.button>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
                 <div className="flex gap-2 mb-4 shrink-0 h-14">
                   <div className="relative flex-1 h-full">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">
@@ -282,6 +312,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                     />
                   </div>
                 </div>
+
                 <div className="flex-1 overflow-y-auto no-scrollbar pb-10">
                   <div className="grid grid-cols-3 gap-3">
                     {displayMovies.map(m => (
