@@ -153,32 +153,17 @@ const App: React.FC = () => {
 
     if (success) {
       if (onboardingData.masterpieces?.length > 0) {
-        const masterpieces = await MovieService.getTrendingForOnboarding();
-        for (const mId of onboardingData.masterpieces) {
-          const fullMovieData = masterpieces.find(m => m.id === mId);
-          await MovieService.submitInteraction({
-            userId: finalUsername,
-            movieId: String(mId),
-            title: fullMovieData?.title,
-            posterUrl: fullMovieData?.posterUrl,
-            type: InteractionType.YES,
-            timestamp: Date.now(),
-            notes: ''
-          });
-        }
-      }
-
-      if (onboardingData.detectedWatchedMovies && onboardingData.detectedWatchedMovies.length > 0) {
-        for (const movie of onboardingData.detectedWatchedMovies) {
-          if (!movie.id) continue;
+        // Fetch movie details for all selected masterpieces to ensure accurate titles/posters
+        const masterpieces = await MovieService.getMoviesByIds(onboardingData.masterpieces);
+        for (const movie of masterpieces) {
           await MovieService.submitInteraction({
             userId: finalUsername,
             movieId: String(movie.id),
             title: movie.title,
             posterUrl: movie.posterUrl,
-            type: InteractionType.WATCHED,
+            type: InteractionType.WATCHED, // Now added to WATCHED list instead of LIKED
             timestamp: Date.now(),
-            notes: 'Imported from AI Screenshot Sync'
+            notes: 'Selected as Masterpiece during onboarding'
           });
         }
       }
