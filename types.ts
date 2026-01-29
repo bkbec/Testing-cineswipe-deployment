@@ -46,7 +46,7 @@ export interface UserInteraction {
   notes?: string;
 }
 
-export type OnboardingStep = 'IDENTITY' | 'PHOTO' | 'GENRES' | 'ANCHORS' | 'FILTERS' | 'LETTERBOXD' | 'COMPLETE';
+export type OnboardingStep = 'IDENTITY' | 'PHOTO' | 'GENRES' | 'ANCHORS' | 'FILTERS' | 'COMPLETE';
 
 export interface OnboardingData {
   name: string;

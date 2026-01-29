@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, Check, Upload, Search, Loader2, Plus, X, Camera, Scan, Trash2 } from 'lucide-react';
+import { ChevronRight, Check, Search, Loader2, Plus, X, Camera } from 'lucide-react';
 import { OnboardingStep, OnboardingData, Movie } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -13,6 +13,8 @@ const FILTERS = [
   { id: 'long', label: 'Nothing Over 2.5h', icon: '⏳' }
 ];
 
+const ONBOARDING_STEPS: OnboardingStep[] = ['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS'];
+
 interface OnboardingProps {
   onComplete: (data: OnboardingData) => void;
 }
@@ -21,12 +23,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [step, setStep] = useState<OnboardingStep>('IDENTITY');
   const [searchInput, setSearchInput] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
   const [trendingMovies, setTrendingMovies] = useState<Partial<Movie>[]>([]);
   const [searchResults, setSearchResults] = useState<Partial<Movie>[]>([]);
   const [selectedMoviesDetails, setSelectedMoviesDetails] = useState<Partial<Movie>[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const screenshotInputRef = useRef<HTMLInputElement>(null);
 
   const [data, setData] = useState<OnboardingData>({
     name: '',
@@ -82,31 +82,6 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     }
   };
 
-  const handleScreenshotSync = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setIsScanning(true);
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64 = reader.result as string;
-        const detected = await MovieService.syncWatchedListFromImage(base64);
-        setData(prev => ({
-          ...prev,
-          detectedWatchedMovies: [...(prev.detectedWatchedMovies || []), ...detected]
-        }));
-        setIsScanning(false);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeDetectedMovie = (id: string) => {
-    setData(prev => ({
-      ...prev,
-      detectedWatchedMovies: (prev.detectedWatchedMovies || []).filter(m => m.id !== id)
-    }));
-  };
-
   const toggleGenre = (genre: string) => {
     setData(prev => ({
       ...prev,
@@ -145,10 +120,9 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   };
 
   const next = () => {
-    const steps: OnboardingStep[] = ['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS', 'LETTERBOXD'];
-    const currentIndex = steps.indexOf(step);
-    if (currentIndex < steps.length - 1) {
-      setStep(steps[currentIndex + 1]);
+    const currentIndex = ONBOARDING_STEPS.indexOf(step);
+    if (currentIndex < ONBOARDING_STEPS.length - 1) {
+      setStep(ONBOARDING_STEPS[currentIndex + 1]);
     } else {
       onComplete(data);
     }
@@ -166,11 +140,11 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     <div className="fixed inset-0 z-[100] bg-black flex flex-col p-6 overflow-hidden select-none">
       <div className="max-w-md mx-auto w-full flex-1 flex flex-col h-full min-h-0">
         <div className="flex gap-2 mb-8 pt-4 shrink-0">
-          {['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS', 'LETTERBOXD'].map((s, idx) => (
+          {ONBOARDING_STEPS.map((s, idx) => (
             <div 
               key={s} 
               className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
-                idx <= ['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS', 'LETTERBOXD'].indexOf(step) ? 'bg-[#DE3151]' : 'bg-zinc-800'
+                idx <= ONBOARDING_STEPS.indexOf(step) ? 'bg-[#DE3151]' : 'bg-zinc-800'
               }`} 
             />
           ))}
@@ -369,93 +343,16 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                 </div>
               </motion.div>
             )}
-
-            {step === 'LETTERBOXD' && (
-              <motion.div 
-                key="letterboxd"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="absolute inset-0 flex flex-col"
-              >
-                <div className="shrink-0 mb-8">
-                  <h2 className="text-4xl font-black mb-2 text-white tracking-tight uppercase">History Sync</h2>
-                  <p className="text-zinc-400 font-medium leading-relaxed">AI scans your screenshots to avoid showing movies you've already seen.</p>
-                </div>
-
-                <div className="flex-1 overflow-y-auto no-scrollbar">
-                  {isScanning ? (
-                    <div className="flex flex-col items-center justify-center py-20 bg-zinc-900/30 rounded-[3rem] border-2 border-[#DE3151]/30 relative overflow-hidden">
-                       <motion.div 
-                         initial={{ top: '0%' }}
-                         animate={{ top: '100%' }}
-                         transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
-                         className="absolute left-0 right-0 h-1 bg-[#DE3151] shadow-[0_0_20px_#DE3151] z-10"
-                       />
-                       <Loader2 className="w-12 h-12 text-[#DE3151] animate-spin mb-6" />
-                       <h3 className="text-xl font-black text-white uppercase tracking-tighter">AI Scanning...</h3>
-                       <p className="text-zinc-500 text-xs font-medium uppercase tracking-[0.2em] mt-2">Identifying movie posters</p>
-                    </div>
-                  ) : (data.detectedWatchedMovies || []).length > 0 ? (
-                    <div className="space-y-6 pb-10">
-                       <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest">Detected ({data.detectedWatchedMovies?.length})</span>
-                          <button 
-                            onClick={() => screenshotInputRef.current?.click()}
-                            className="text-[10px] font-black uppercase text-[#DE3151] tracking-widest flex items-center gap-2"
-                          >
-                             <Plus className="w-3 h-3" /> Add More
-                          </button>
-                       </div>
-                       <div className="grid grid-cols-3 gap-3">
-                         {data.detectedWatchedMovies?.map(m => (
-                           <div key={m.id} className="relative aspect-[2/3] rounded-xl overflow-hidden border border-white/5 group shadow-xl">
-                              <img src={m.posterUrl} className="w-full h-full object-cover grayscale" />
-                              <button 
-                                onClick={() => m.id && removeDetectedMovie(m.id)}
-                                className="absolute top-1 right-1 bg-black/80 rounded-full p-1 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                           </div>
-                         ))}
-                       </div>
-                    </div>
-                  ) : (
-                    <div 
-                      onClick={() => screenshotInputRef.current?.click()}
-                      className="bg-zinc-900/50 p-12 rounded-[3rem] border-4 border-dashed border-zinc-800 flex flex-col items-center gap-6 hover:border-[#DE3151] transition-colors group cursor-pointer"
-                    >
-                      <div className="w-20 h-20 bg-zinc-800 rounded-3xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-2xl">
-                        <Scan className="w-10 h-10 text-[#DE3151]" />
-                      </div>
-                      <div className="text-center">
-                        <h3 className="text-2xl font-black text-white mb-2">Sync Watched List</h3>
-                        <p className="text-zinc-500 text-sm max-w-[200px] mx-auto leading-relaxed italic">Upload a screenshot of your movie posters or Letterboxd list.</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                <input 
-                  type="file" 
-                  ref={screenshotInputRef} 
-                  onChange={handleScreenshotSync} 
-                  accept="image/*" 
-                  className="hidden" 
-                />
-              </motion.div>
-            )}
           </AnimatePresence>
         </div>
 
         <div className="pb-8 pt-4 shrink-0">
           <button 
             onClick={next}
-            disabled={isNextDisabled() || isScanning}
+            disabled={isNextDisabled()}
             className="w-full bg-[#DE3151] text-white py-6 rounded-3xl font-black text-xl flex items-center justify-center gap-3 hover:brightness-110 active:scale-[0.98] transition-all shadow-2xl shadow-[#DE3151]/30 disabled:opacity-20 disabled:grayscale"
           >
-            {isScanning ? 'Processing...' : step === 'LETTERBOXD' ? 'Finish Setup' : 'Continue'}
+            {step === ONBOARDING_STEPS[ONBOARDING_STEPS.length - 1] ? 'Finish Setup' : 'Continue'}
             <ChevronRight className="w-6 h-6" />
           </button>
         </div>
