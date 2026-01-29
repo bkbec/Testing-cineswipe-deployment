@@ -1,7 +1,6 @@
 
 import React, { useMemo, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-// Added Plus to imports from lucide-react
 import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus } from 'lucide-react';
 import { Movie, UserProfile } from '../types';
 import { MovieService } from '../services/movieService';
@@ -28,10 +27,17 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
   const stats = useMemo(() => {
     const allInteracted = [...likedMovies, ...watchedMovies];
-    
-    // Genre Counts
     const genreCounts: Record<string, number> = {};
     allInteracted.forEach(m => {
       m.genres.forEach(g => {
@@ -39,7 +45,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       });
     });
     
-    // Director Counts
     const directorCounts: Record<string, number> = {};
     allInteracted.forEach(m => {
       if (m.director) {
@@ -57,7 +62,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       .slice(0, 3)
       .map(([name]) => name);
 
-    // Watcher Type Logic
     let watcherType = "The Explorer";
     let personaColor = "#DE3151";
     
@@ -130,7 +134,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto no-scrollbar pb-32">
-      {/* Profile Header */}
       <div className="p-6 flex justify-between items-start">
         <div>
           <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-0.5 block">Your Identity</span>
@@ -146,7 +149,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         )}
       </div>
 
-      {/* Profile Identity Card */}
       <div className="px-6 mb-8">
         <motion.div 
           layout
@@ -156,13 +158,19 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
             <div className="relative group mb-6">
               <div 
                 onClick={() => isEditing && fileInputRef.current?.click()}
-                className={`w-32 h-32 rounded-[2.5rem] bg-zinc-950 border-4 overflow-hidden shadow-2xl transition-all duration-500 ${isEditing ? 'border-[#DE3151] cursor-pointer' : 'border-zinc-800'}`}
+                className={`w-32 h-32 rounded-[2.5rem] bg-zinc-950 border-4 overflow-hidden shadow-2xl transition-all duration-500 flex items-center justify-center ${isEditing ? 'border-[#DE3151] cursor-pointer' : 'border-zinc-800'}`}
               >
-                <img 
-                  src={photoPreview || profile?.avatar_url} 
-                  className="w-full h-full object-cover" 
-                  alt="Profile" 
-                />
+                {(photoPreview || profile?.avatar_url) ? (
+                  <img 
+                    src={photoPreview || profile?.avatar_url} 
+                    className="w-full h-full object-cover" 
+                    alt="Profile" 
+                  />
+                ) : (
+                  <span className="text-4xl font-black text-white">
+                    {profile ? getInitials(profile.full_name) : '??'}
+                  </span>
+                )}
                 {isEditing && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                     <Camera className="w-8 h-8 text-white opacity-80" />
@@ -238,7 +246,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </motion.div>
       </div>
 
-      {/* Quick Stats */}
       <div className="grid grid-cols-2 gap-4 px-6 mb-10">
         <div className="bg-zinc-900/50 p-6 rounded-3xl border border-white/5 flex flex-col gap-1 shadow-xl">
           <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2"><Film className="w-3 h-3" /> Seen</span>
@@ -250,7 +257,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
 
-      {/* Taste Breakdown */}
       <div className="space-y-10 mb-10">
         <div>
           <div className="px-6 flex justify-between items-end mb-4">
@@ -286,7 +292,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
 
-      {/* Watched History Section */}
       <div className="px-6 mb-10">
         <div className="flex justify-between items-end mb-6">
           <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em]">Recent Reels (Watched)</h4>

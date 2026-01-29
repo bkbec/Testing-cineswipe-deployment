@@ -13,19 +13,15 @@ import { Movie, InteractionType, OnboardingData, UserProfile } from './types';
 import { APP_VERSION } from './constants';
 
 const App: React.FC = () => {
-  // Logic to handle "Reset Only Once" per version bump
   const [userName, setUserName] = useState<string | null>(() => {
     const resetKey = `has_reset_to_${APP_VERSION}`;
     const hasAlreadyReset = localStorage.getItem(resetKey);
 
     if (!hasAlreadyReset) {
-      // First time loading this version: Clear existing session for fresh onboarding
       localStorage.removeItem('user_name');
       localStorage.setItem(resetKey, 'true');
       return null;
     }
-
-    // Subsequent loads: Return the stored profile if available
     return localStorage.getItem('user_name');
   });
 
@@ -115,7 +111,7 @@ const App: React.FC = () => {
     const rawUsername = onboardingData.name.toLowerCase().replace(/\s+/g, '_');
     const finalUsername = rawUsername; 
     
-    let avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${finalUsername}`;
+    let avatarUrl = onboardingData.photoPreview || `https://api.dicebear.com/7.x/avataaars/svg?seed=${finalUsername}`;
     
     if (onboardingData.photoFile) {
       const uploadedUrl = await MovieService.uploadAvatar(finalUsername, onboardingData.photoFile);
@@ -185,7 +181,15 @@ const App: React.FC = () => {
 
   const currentProfile = profiles.find(p => p.username === userName);
 
-  // START PAGE / SPLASH
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  };
+
   if (showStartPage && !userName) {
     return (
       <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8 overflow-hidden">
@@ -219,7 +223,6 @@ const App: React.FC = () => {
     );
   }
 
-  // ONBOARDING / PROFILE SELECTION
   if (!userName || userName === '__PENDING__') {
     if (userName === '__PENDING__') {
        return <Onboarding onComplete={handleOnboardingComplete} />;
@@ -253,7 +256,11 @@ const App: React.FC = () => {
                 className="group flex flex-col items-center gap-4 w-32"
               >
                 <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center group-hover:border-[#DE3151] transition-all shadow-2xl overflow-hidden relative">
-                  <img src={profile.avatar_url} className="w-full h-full object-cover" alt={profile.full_name} />
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} className="w-full h-full object-cover" alt={profile.full_name} />
+                  ) : (
+                    <span className="text-2xl font-black text-white">{getInitials(profile.full_name)}</span>
+                  )}
                   <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors" />
                 </div>
                 <span className="font-black text-xs uppercase tracking-[0.3em] text-zinc-500 group-hover:text-white transition-colors truncate w-full text-center">{profile.full_name}</span>
@@ -324,6 +331,26 @@ const App: React.FC = () => {
              <span className="text-[8px] font-black text-[#DE3151] uppercase tracking-widest">Logged in as</span>
              <span className="text-xs font-bold text-white tracking-tight">{currentProfile?.full_name || userName}</span>
            </div>
+           
+           <div className="relative group">
+              <div 
+                onClick={() => setActiveTab('profile')}
+                className="w-10 h-10 rounded-2xl bg-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#DE3151] transition-all"
+              >
+                {currentProfile?.avatar_url ? (
+                  <img 
+                    src={currentProfile.avatar_url} 
+                    className="w-full h-full object-cover" 
+                    alt="Profile" 
+                  />
+                ) : (
+                  <span className="text-[10px] font-black text-white">
+                    {currentProfile ? getInitials(currentProfile.full_name) : '??'}
+                  </span>
+                )}
+              </div>
+           </div>
+
            <button 
              onClick={handleLogout}
              className="w-10 h-10 rounded-2xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 hover:text-[#DE3151] transition-all active:scale-95 hover:bg-[#DE3151]/10"
