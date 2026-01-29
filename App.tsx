@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, LogOut, Plus, Loader2, Play } from 'lucide-react';
+import { Sparkles, LogOut, Plus, Loader2, Play, Trash2, Settings2, X } from 'lucide-react';
 import Logo from './components/Logo';
 import DiscoverSection from './components/DiscoverSection';
 import BottomNav from './components/BottomNav';
@@ -31,9 +31,12 @@ const App: React.FC = () => {
   const [isViewingAllWatched, setIsViewingAllWatched] = useState(false);
   const [likedMovies, setLikedMovies] = useState<Movie[]>([]);
   const [watchedMovies, setWatchedMovies] = useState<Movie[]>([]);
+  const [sharedMovies, setSharedMovies] = useState<Movie[]>([]);
   const [matchMovie, setMatchMovie] = useState<Movie | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
+  const [isManagingProfiles, setIsManagingProfiles] = useState(false);
+  const [profileToDelete, setProfileToDelete] = useState<UserProfile | null>(null);
 
   const refreshProfiles = async () => {
     setIsLoadingProfiles(true);
@@ -84,14 +87,37 @@ const App: React.FC = () => {
       } else {
         setWatchedMovies([]);
       }
+
+      const shared = await MovieService.getSharedMatches(userName);
+      setSharedMovies(shared);
+
     } catch (e) {
       console.error("Refresh data failed", e);
     }
   };
 
   const handleProfileSelect = (name: string) => {
+    if (isManagingProfiles) return;
     localStorage.setItem('user_name', name);
     setUserName(name);
+  };
+
+  const handleDeleteProfile = async (profile: UserProfile) => {
+    setProfileToDelete(profile);
+  };
+
+  const confirmDelete = async () => {
+    if (!profileToDelete) return;
+    const success = await MovieService.deleteProfile(profileToDelete.username);
+    if (success) {
+      if (userName === profileToDelete.username) {
+        handleLogout();
+      }
+      await refreshProfiles();
+      setProfileToDelete(null);
+    } else {
+      alert("Failed to delete profile.");
+    }
   };
 
   const handleAddNewProfile = () => {
@@ -105,6 +131,7 @@ const App: React.FC = () => {
     setHasOnboarded(false);
     setShowStartPage(true);
     setActiveTab('discover');
+    setIsManagingProfiles(false);
   };
 
   const handleOnboardingComplete = async (onboardingData: OnboardingData) => {
@@ -167,16 +194,18 @@ const App: React.FC = () => {
   };
 
   const handleDiscoverInteraction = useCallback(async (movieId: string, type: InteractionType) => {
-    refreshData();
     if (type === InteractionType.YES && userName) {
       const isMatch = await MovieService.checkForMatches(movieId, userName);
       if (isMatch) {
         const movies = await MovieService.getMoviesByIds([movieId]);
         if (movies && movies.length > 0) {
           setMatchMovie(movies[0]);
+          const shared = await MovieService.getSharedMatches(userName);
+          setSharedMovies(shared);
         }
       }
     }
+    refreshData();
   }, [userName]);
 
   const currentProfile = profiles.find(p => p.username === userName);
@@ -243,43 +272,93 @@ const App: React.FC = () => {
           <p className="text-zinc-500 font-medium">Who's picking the movie tonight?</p>
         </motion.div>
 
-        <div className="flex flex-wrap justify-center gap-8 w-full max-w-2xl relative z-10">
+        <div className="flex flex-wrap justify-center gap-8 w-full max-w-2xl relative z-10 px-4">
           {isLoadingProfiles ? (
             <Loader2 className="w-8 h-8 animate-spin text-[#DE3151]" />
           ) : (
             profiles.map(profile => (
-              <motion.button
+              <motion.div
                 key={profile.username}
-                whileHover={{ scale: 1.05, y: -5 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => handleProfileSelect(profile.username)}
-                className="group flex flex-col items-center gap-4 w-32"
+                layout
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="relative group w-32"
               >
-                <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center group-hover:border-[#DE3151] transition-all shadow-2xl overflow-hidden relative">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} className="w-full h-full object-cover" alt={profile.full_name} />
-                  ) : (
-                    <span className="text-2xl font-black text-white">{getInitials(profile.full_name)}</span>
-                  )}
-                  <div className="absolute inset-0 bg-black/40 group-hover:bg-transparent transition-colors" />
-                </div>
-                <span className="font-black text-xs uppercase tracking-[0.3em] text-zinc-500 group-hover:text-white transition-colors truncate w-full text-center">{profile.full_name}</span>
-              </motion.button>
+                <motion.button
+                  whileHover={!isManagingProfiles ? { scale: 1.05, y: -5 } : {}}
+                  whileTap={!isManagingProfiles ? { scale: 0.95 } : {}}
+                  onClick={() => handleProfileSelect(profile.username)}
+                  className={`group flex flex-col items-center gap-4 w-full transition-all ${isManagingProfiles ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
+                >
+                  <div className={`w-full aspect-square rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center overflow-hidden relative shadow-2xl ${!isManagingProfiles ? 'group-hover:border-[#DE3151]' : ''}`}>
+                    {profile.avatar_url ? (
+                      <img src={profile.avatar_url} className="w-full h-full object-cover" alt={profile.full_name} />
+                    ) : (
+                      <span className="text-2xl font-black text-white">{getInitials(profile.full_name)}</span>
+                    )}
+                    <div className={`absolute inset-0 bg-black/40 transition-colors ${!isManagingProfiles ? 'group-hover:bg-transparent' : ''}`} />
+                  </div>
+                  <span className="font-black text-xs uppercase tracking-[0.3em] text-zinc-500 transition-colors truncate w-full text-center group-hover:text-white">{profile.full_name}</span>
+                </motion.button>
+                
+                {isManagingProfiles && (
+                  <motion.button
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleDeleteProfile(profile)}
+                    className="absolute -top-2 -right-2 w-10 h-10 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-2xl z-20 border-2 border-black"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </motion.button>
+                )}
+              </motion.div>
             ))
           )}
 
-          <motion.button
-            whileHover={{ scale: 1.05, y: -5 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleAddNewProfile}
-            className="group flex flex-col items-center gap-4 w-32"
-          >
-            <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-950 border-2 border-dashed border-zinc-800 flex items-center justify-center group-hover:border-[#DE3151] group-hover:bg-[#DE3151]/5 transition-all shadow-2xl relative">
-              <Plus className="w-10 h-10 text-zinc-700 group-hover:text-[#DE3151]" />
-            </div>
-            <span className="font-black text-[10px] uppercase tracking-[0.2em] text-zinc-700 group-hover:text-white transition-colors">Add Profile</span>
-          </motion.button>
+          <div className="flex flex-col items-center gap-8">
+            <motion.button
+              whileHover={{ scale: 1.05, y: -5 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAddNewProfile}
+              className="group flex flex-col items-center gap-4 w-32"
+            >
+              <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-950 border-2 border-dashed border-zinc-800 flex items-center justify-center group-hover:border-[#DE3151] group-hover:bg-[#DE3151]/5 transition-all shadow-2xl relative">
+                <Plus className="w-10 h-10 text-zinc-700 group-hover:text-[#DE3151]" />
+              </div>
+              <span className="font-black text-[10px] uppercase tracking-[0.2em] text-zinc-700 group-hover:text-white transition-colors">Add Profile</span>
+            </motion.button>
+
+            <motion.button
+              onClick={() => setIsManagingProfiles(!isManagingProfiles)}
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl border transition-all text-[10px] font-black uppercase tracking-widest ${isManagingProfiles ? 'bg-[#DE3151] border-[#DE3151] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
+            >
+              <Settings2 className="w-4 h-4" />
+              {isManagingProfiles ? 'Done Managing' : 'Manage Profiles'}
+            </motion.button>
+          </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        <AnimatePresence>
+          {profileToDelete && (
+            <div className="fixed inset-0 z-[500] flex items-center justify-center p-6">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setProfileToDelete(null)} />
+              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-w-sm bg-zinc-900 border border-white/10 rounded-[2.5rem] p-8 text-center shadow-2xl">
+                <div className="w-20 h-20 bg-red-600/10 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                  <Trash2 className="w-10 h-10" />
+                </div>
+                <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Delete Profile?</h3>
+                <p className="text-zinc-500 text-sm mb-8 leading-relaxed">This will permanently remove <span className="text-white font-bold">{profileToDelete.full_name}</span> and all their movie preferences. This cannot be undone.</p>
+                <div className="flex flex-col gap-3">
+                  <button onClick={confirmDelete} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl">Confirm Delete</button>
+                  <button onClick={() => setProfileToDelete(null)} className="w-full py-4 bg-zinc-800 text-zinc-400 rounded-2xl font-black uppercase tracking-widest text-xs">Cancel</button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -298,7 +377,7 @@ const App: React.FC = () => {
         
         {movies.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <div className="w-20 h-20 bg-zinc-900 rounded-[2rem] flex items-center justify-center text-3xl opacity-30 grayscale">🎞️</div>
+            <div className="w-20 h-20 bg-zinc-900 rounded-[2rem] flex items-center justify-center text-4xl shadow-2xl mb-8">🍿</div>
             <p className="text-zinc-500 font-medium max-w-[200px] leading-relaxed">{emptyMsg}</p>
           </div>
         ) : (
@@ -327,11 +406,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-           <div className="flex flex-col items-end">
-             <span className="text-[8px] font-black text-[#DE3151] uppercase tracking-widest">Logged in as</span>
-             <span className="text-xs font-bold text-white tracking-tight">{currentProfile?.full_name || userName}</span>
-           </div>
-           
            <div className="relative group">
               <div 
                 onClick={() => setActiveTab('profile')}
@@ -366,7 +440,7 @@ const App: React.FC = () => {
           <DiscoverSection userId={userName} onInteraction={handleDiscoverInteraction} />
         )}
         {activeTab === 'likes' && renderListView('My Favorites', likedMovies, 'Films you marked with a heart.')}
-        {activeTab === 'shared' && renderListView('Shared Likes', [], 'Connect with a partner to see matches!')}
+        {activeTab === 'shared' && renderListView('Shared Likes', sharedMovies, 'Films you and your partner both want to see!')}
         {activeTab === 'profile' && !isViewingAllWatched && (
           <ProfileSection 
             profile={currentProfile}
@@ -374,6 +448,10 @@ const App: React.FC = () => {
             watchedMovies={watchedMovies} 
             onViewAllWatched={() => setIsViewingAllWatched(true)}
             onProfileUpdate={refreshProfiles}
+            onAccountDelete={() => {
+              handleLogout();
+              refreshProfiles();
+            }}
           />
         )}
         {activeTab === 'profile' && isViewingAllWatched && (

@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus } from 'lucide-react';
+import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { Movie, UserProfile } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -11,6 +11,7 @@ interface ProfileSectionProps {
   watchedMovies: Movie[];
   onViewAllWatched: () => void;
   onProfileUpdate: () => void;
+  onAccountDelete?: () => void;
 }
 
 const ProfileSection: React.FC<ProfileSectionProps> = ({ 
@@ -18,13 +19,16 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
   likedMovies, 
   watchedMovies, 
   onViewAllWatched,
-  onProfileUpdate 
+  onProfileUpdate,
+  onAccountDelete
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(profile?.full_name || '');
   const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getInitials = (name: string) => {
@@ -122,6 +126,19 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       console.error("Save failed", e);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!profile) return;
+    setIsDeleting(true);
+    const success = await MovieService.deleteProfile(profile.username);
+    if (success) {
+      if (onAccountDelete) onAccountDelete();
+    } else {
+      alert("Failed to delete account.");
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -325,6 +342,67 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* Danger Zone */}
+      <div className="px-6 mt-10 pt-10 border-t border-white/5">
+        <div className="bg-red-950/20 border border-red-500/20 rounded-[2rem] p-8">
+          <div className="flex items-center gap-3 mb-4 text-red-500">
+            <AlertTriangle className="w-5 h-5" />
+            <h4 className="text-xs font-black uppercase tracking-[0.2em]">Danger Zone</h4>
+          </div>
+          <p className="text-zinc-500 text-xs mb-8 leading-relaxed">Deleting your profile will permanently erase all your movie preferences, watched history, and ratings. This cannot be undone.</p>
+          <button 
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-red-600/10 active:scale-95 transition-all"
+          >
+            Delete Profile Permanently
+          </button>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Overlay */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-black/95 backdrop-blur-xl"
+              onClick={() => !isDeleting && setShowDeleteConfirm(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }} 
+              animate={{ scale: 1, opacity: 1, y: 0 }} 
+              exit={{ scale: 0.9, opacity: 0, y: 20 }} 
+              className="relative w-full max-w-sm bg-zinc-900 border border-red-500/30 rounded-[3rem] p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-red-600 text-white rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl">
+                <Trash2 className="w-10 h-10" />
+              </div>
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-4">Final Confirmation</h3>
+              <p className="text-zinc-500 text-sm mb-10 leading-relaxed">Are you absolutely sure you want to delete <span className="text-white font-bold">{profile?.full_name}</span>? This action is irreversible.</p>
+              
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={handleDeleteAccount}
+                  disabled={isDeleting}
+                  className="w-full py-5 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl flex items-center justify-center gap-3 disabled:opacity-50"
+                >
+                  {isDeleting ? <Loader2 className="w-5 h-5 animate-spin" /> : "Yes, Delete Everything"}
+                </button>
+                <button 
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isDeleting}
+                  className="w-full py-5 bg-zinc-800 text-zinc-400 rounded-2xl font-black uppercase tracking-widest text-xs"
+                >
+                  No, Keep My Profile
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

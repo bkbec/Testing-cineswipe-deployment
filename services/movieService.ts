@@ -12,10 +12,7 @@ export class MovieService {
    */
   static async syncWatchedListFromImage(base64Image: string): Promise<Partial<Movie>[]> {
     try {
-      // Initialize Gemini
-      const ai = new GoogleGenAI({ apiKey: (process.env as any).API_KEY });
-      
-      // Remove data:image/jpeg;base64, prefix if exists
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
       const response = await ai.models.generateContent({
@@ -55,7 +52,6 @@ export class MovieService {
       
       if (!titles || titles.length === 0) return [];
 
-      // Cross-reference with TMDB to get proper IDs and posters
       const movies = await Promise.all(
         titles.slice(0, 20).map(async (title: string) => {
           const results = await this.searchMovies(title);
@@ -106,6 +102,25 @@ export class MovieService {
       return true;
     } catch (e) {
       console.error("Save profile failed:", e);
+      return false;
+    }
+  }
+
+  static async deleteProfile(username: string): Promise<boolean> {
+    try {
+      // 1. Delete associated swipes first to maintain clean data
+      await supabase.from('swipes').delete().eq('user_name', username);
+      
+      // 2. Delete the profile itself
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('username', username);
+      
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error("Delete profile failed:", e);
       return false;
     }
   }
@@ -189,6 +204,34 @@ export class MovieService {
     }
   }
 
+  static async getSharedMatches(userId: string): Promise<Movie[]> {
+    try {
+      const { data: myLikes } = await supabase
+        .from('swipes')
+        .select('movie_id')
+        .eq('user_name', userId)
+        .eq('swipe_type', InteractionType.YES);
+
+      if (!myLikes || myLikes.length === 0) return [];
+      const myLikeIds = (myLikes as any[]).map(l => String(l.movie_id));
+
+      const { data: othersLikes } = await supabase
+        .from('swipes')
+        .select('movie_id')
+        .in('movie_id', myLikeIds)
+        .eq('swipe_type', InteractionType.YES)
+        .neq('user_name', userId);
+
+      if (!othersLikes || othersLikes.length === 0) return [];
+
+      const sharedIds = Array.from(new Set((othersLikes as any[]).map(l => String(l.movie_id))));
+      return await this.getMoviesByIds(sharedIds);
+    } catch (e) {
+      console.error("Shared matches fetch failed", e);
+      return [];
+    }
+  }
+
   static async submitInteraction(interaction: UserInteraction): Promise<boolean> {
     try {
       const payload = this.mapToDb(interaction);
@@ -236,7 +279,7 @@ export class MovieService {
         .from('swipes')
         .select('user_name')
         .eq('movie_id', String(movieId))
-        .eq('type', InteractionType.YES)
+        .eq('swipe_type', InteractionType.YES)
         .neq('user_name', currentUserId);
       
       if (error) return false;
