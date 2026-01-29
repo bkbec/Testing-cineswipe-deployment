@@ -1,7 +1,7 @@
 
 import { Movie } from './types';
 
-export const APP_VERSION = '1.1.2';
+export const APP_VERSION = '1.1.3';
 
 export const MOCK_MOVIES: Movie[] = [
   {
