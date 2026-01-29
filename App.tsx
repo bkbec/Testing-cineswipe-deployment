@@ -180,7 +180,7 @@ const App: React.FC = () => {
         <motion.div 
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="text-center relative z-10"
+          className="text-center relative z-10 flex flex-col items-center"
         >
           <Logo className="w-32 h-32 mx-auto mb-10 drop-shadow-[0_0_30px_rgba(222,49,81,0.6)]" />
           <h1 className="text-6xl font-black text-white tracking-tighter uppercase mb-2 italic">CineMatch</h1>
@@ -198,7 +198,7 @@ const App: React.FC = () => {
         </motion.div>
 
         <div className="absolute bottom-12 left-0 right-0 text-center">
-          <span className="text-[9px] font-black text-zinc-800 uppercase tracking-[0.5em]">Build Version {APP_VERSION}</span>
+          <span className="text-[9px] font-black text-white uppercase tracking-[0.5em] opacity-50">Build Version {APP_VERSION}</span>
         </div>
       </div>
     );

@@ -35,6 +35,11 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
     }
   };
 
+  // Determine the correct RT icon based on score
+  const rtIcon = movie.ratings.rottenTomatoesCritic >= 60 
+    ? "https://www.rottentomatoes.com/assets/cas/images/static/icons/fresh.svg"
+    : "https://www.rottentomatoes.com/assets/cas/images/static/icons/rotten.svg";
+
   return (
     <div className={`absolute inset-0 transition-all duration-700 ${isTop ? 'z-10' : 'z-0 opacity-0'}`} style={{ perspective: '2000px' }}>
       <motion.div 
@@ -57,7 +62,6 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
         transition={{ type: 'spring', stiffness: 120, damping: 22 }}
       >
         {/* FRONT SIDE */}
-        {/* Fix: Changed div to motion.div to support onTap property */}
         <motion.div 
           className="absolute inset-0 bg-zinc-900 rounded-[1.5rem] overflow-hidden shadow-2xl border border-white/5 flex flex-col"
           style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
@@ -95,7 +99,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
             <div className="flex items-center gap-3 mb-4 shrink-0">
                <div className="flex items-center gap-2 bg-zinc-900 border border-white/10 px-3 py-1.5 rounded-xl shadow-lg">
                   <img 
-                    src="https://www.rottentomatoes.com/assets/cas/images/static/icons/fresh.svg" 
+                    src={rtIcon} 
                     className="w-4 h-4 object-contain" 
                     alt="RT Critic" 
                   />
@@ -161,7 +165,6 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
         </motion.div>
 
         {/* BACK SIDE */}
-        {/* Fix: Changed div to motion.div to support onTap property */}
         <motion.div 
           className="absolute inset-0 bg-zinc-900 rounded-[1.5rem] overflow-hidden shadow-2xl border border-white/10 flex flex-col"
           style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
