@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, Check, Search, Loader2, Plus, X, Camera } from 'lucide-react';
+import { ChevronRight, Check, Search, Loader2, Plus, X, Camera, RefreshCw } from 'lucide-react';
 import { OnboardingStep, OnboardingData, Movie } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -13,7 +13,7 @@ const FILTERS = [
   { id: 'long', label: 'Nothing Over 2.5h', icon: '⏳' }
 ];
 
-const ONBOARDING_STEPS: OnboardingStep[] = ['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS'];
+const ONBOARDING_STEPS: OnboardingStep[] = ['IDENTITY', 'PHOTO', 'GENRES', 'ANCHORS', 'FILTERS', 'SYNC'];
 
 interface OnboardingProps {
   onComplete: (data: OnboardingData) => void;
@@ -23,6 +23,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
   const [step, setStep] = useState<OnboardingStep>('IDENTITY');
   const [searchInput, setSearchInput] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [trendingMovies, setTrendingMovies] = useState<Partial<Movie>[]>([]);
   const [searchResults, setSearchResults] = useState<Partial<Movie>[]>([]);
   const [selectedMoviesDetails, setSelectedMoviesDetails] = useState<Partial<Movie>[]>([]);
@@ -35,6 +37,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
     genres: [],
     masterpieces: [],
     filters: [],
+    letterboxdUsername: '',
     detectedWatchedMovies: []
   });
 
@@ -117,6 +120,26 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
         ? prev.filters.filter(f => f !== id) 
         : [...(prev.filters || []), id]
     }));
+  };
+
+  const handleSync = async () => {
+    if (!data.letterboxdUsername) return;
+    setIsSyncing(true);
+    setSyncProgress("Establishing connection...");
+    try {
+      const count = await MovieService.syncLetterboxdHistory(
+        data.letterboxdUsername, 
+        'onboarding_temp',
+        (msg) => setSyncProgress(msg)
+      );
+      setIsSyncing(false);
+      setSyncProgress(null);
+      alert(`Successfully synced ${count} movies from Letterboxd!`);
+    } catch (err) {
+      alert("Sync failed. Check your username and feed visibility.");
+      setIsSyncing(false);
+      setSyncProgress(null);
+    }
   };
 
   const next = () => {
@@ -340,6 +363,56 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete }) => {
                       {(data.filters || []).includes(f.id) && <Check className="w-6 h-6" />}
                     </button>
                   ))}
+                </div>
+              </motion.div>
+            )}
+
+            {step === 'SYNC' && (
+              <motion.div 
+                key="sync"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                className="absolute inset-0 flex flex-col"
+              >
+                <h2 className="text-4xl font-black mb-2 text-white tracking-tight uppercase">External Sync</h2>
+                <p className="text-zinc-400 mb-10 font-medium italic">Import your recent history from Letterboxd.</p>
+                
+                <div className="space-y-6">
+                  <div className="bg-zinc-900 p-6 rounded-[2.5rem] border border-zinc-800 shadow-xl">
+                    <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest block mb-4">Letterboxd Username</label>
+                    <input 
+                      type="text"
+                      value={data.letterboxdUsername}
+                      onChange={(e) => setData(prev => ({ ...prev, letterboxdUsername: e.target.value }))}
+                      placeholder="e.g. cinephile_99"
+                      className="w-full bg-transparent border-b-2 border-zinc-800 focus:border-[#DE3151] py-3 text-xl font-black text-white outline-none transition-all placeholder:text-zinc-800"
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <button
+                      onClick={handleSync}
+                      disabled={isSyncing || !data.letterboxdUsername}
+                      className="w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 py-6 rounded-3xl flex items-center justify-center gap-4 transition-all group active:scale-[0.98] disabled:opacity-20"
+                    >
+                      <div className="w-10 h-10 bg-[#DE3151]/10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                        {isSyncing ? <Loader2 className="w-5 h-5 text-[#DE3151] animate-spin" /> : <RefreshCw className="w-5 h-5 text-[#DE3151]" />}
+                      </div>
+                      <span className="text-white font-black uppercase tracking-widest text-xs">
+                        {isSyncing ? 'Syncing Diary...' : 'Sync Recent History'}
+                      </span>
+                    </button>
+                    {syncProgress && (
+                      <p className="text-[9px] font-bold text-[#DE3151] uppercase tracking-[0.2em] text-center animate-pulse">
+                        {syncProgress}
+                      </p>
+                    )}
+                  </div>
+
+                  <p className="text-[10px] text-zinc-500 text-center uppercase tracking-widest leading-relaxed">
+                    This will fetch your latest activity and mark them as watched to avoid duplicates in discovery.
+                  </p>
                 </div>
               </motion.div>
             )}

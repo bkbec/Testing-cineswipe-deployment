@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, LogOut, Plus, Loader2, Play, Trash2, Settings2, X } from 'lucide-react';
+import { Sparkles, LogOut, Plus, Loader2, Play, Trash2, Settings2, X, Bell } from 'lucide-react';
 import Logo from './components/Logo';
 import DiscoverSection from './components/DiscoverSection';
 import BottomNav from './components/BottomNav';
@@ -37,6 +37,7 @@ const App: React.FC = () => {
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
   const [isManagingProfiles, setIsManagingProfiles] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<UserProfile | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const refreshProfiles = async () => {
     setIsLoadingProfiles(true);
@@ -148,12 +149,12 @@ const App: React.FC = () => {
     const success = await MovieService.saveProfile({
       username: finalUsername,
       full_name: onboardingData.name,
-      avatar_url: avatarUrl
+      avatar_url: avatarUrl,
+      letterboxd_username: onboardingData.letterboxdUsername
     });
 
     if (success) {
       if (onboardingData.masterpieces?.length > 0) {
-        // Fetch movie details for all selected masterpieces to ensure accurate titles/posters
         const masterpieces = await MovieService.getMoviesByIds(onboardingData.masterpieces);
         for (const movie of masterpieces) {
           await MovieService.submitInteraction({
@@ -161,11 +162,15 @@ const App: React.FC = () => {
             movieId: String(movie.id),
             title: movie.title,
             posterUrl: movie.posterUrl,
-            type: InteractionType.WATCHED, // Now added to WATCHED list instead of LIKED
+            type: InteractionType.WATCHED,
             timestamp: Date.now(),
             notes: 'Selected as Masterpiece during onboarding'
           });
         }
+      }
+
+      if (onboardingData.letterboxdUsername) {
+        await MovieService.syncLetterboxdHistory(onboardingData.letterboxdUsername, finalUsername);
       }
 
       localStorage.setItem('user_name', finalUsername);
@@ -176,6 +181,11 @@ const App: React.FC = () => {
     } else {
       alert("Failed to create profile. Please try again.");
     }
+  };
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 4000);
   };
 
   const handleDiscoverInteraction = useCallback(async (movieId: string, type: InteractionType) => {
@@ -330,7 +340,7 @@ const App: React.FC = () => {
           {profileToDelete && (
             <div className="fixed inset-0 z-[500] flex items-center justify-center p-6">
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setProfileToDelete(null)} />
-              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-w-sm bg-zinc-900 border border-white/10 rounded-[2.5rem] p-8 text-center shadow-2xl">
+              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-sm:p-6 max-w-sm bg-zinc-900 border border-white/10 rounded-[2.5rem] p-8 text-center shadow-2xl">
                 <div className="w-20 h-20 bg-red-600/10 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
                   <Trash2 className="w-10 h-10" />
                 </div>
@@ -433,6 +443,7 @@ const App: React.FC = () => {
             watchedMovies={watchedMovies} 
             onViewAllWatched={() => setIsViewingAllWatched(true)}
             onProfileUpdate={refreshProfiles}
+            onShowToast={showToast}
             onAccountDelete={() => {
               handleLogout();
               refreshProfiles();
@@ -473,6 +484,25 @@ const App: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div 
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] w-full max-w-xs px-4"
+          >
+            <div className="bg-[#DE3151] text-white px-6 py-4 rounded-2xl shadow-2xl border border-white/20 flex items-center gap-4">
+               <div className="bg-white/20 rounded-full p-2">
+                 <Bell className="w-4 h-4" />
+               </div>
+               <span className="text-xs font-black uppercase tracking-widest leading-relaxed flex-1">{toastMsg}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#DE3151]/10 blur-[180px] pointer-events-none rounded-full" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-white/5 blur-[180px] pointer-events-none rounded-full" />
     </div>

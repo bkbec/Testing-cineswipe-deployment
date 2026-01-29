@@ -46,7 +46,7 @@ export interface UserInteraction {
   notes?: string;
 }
 
-export type OnboardingStep = 'IDENTITY' | 'PHOTO' | 'GENRES' | 'ANCHORS' | 'FILTERS' | 'COMPLETE';
+export type OnboardingStep = 'IDENTITY' | 'PHOTO' | 'GENRES' | 'ANCHORS' | 'FILTERS' | 'SYNC' | 'COMPLETE';
 
 export interface OnboardingData {
   name: string;
@@ -55,6 +55,7 @@ export interface OnboardingData {
   genres: string[];
   masterpieces: string[];
   filters: string[];
+  letterboxdUsername?: string;
   detectedWatchedMovies?: Partial<Movie>[];
 }
 
@@ -62,6 +63,7 @@ export interface UserProfile {
   username: string;
   full_name: string;
   avatar_url: string;
+  letterboxd_username?: string;
   isOnboarded?: boolean;
 }
 

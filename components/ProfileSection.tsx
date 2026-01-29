@@ -1,7 +1,7 @@
 
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus, Trash2, AlertTriangle } from 'lucide-react';
+import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Movie, UserProfile } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -12,6 +12,7 @@ interface ProfileSectionProps {
   onViewAllWatched: () => void;
   onProfileUpdate: () => void;
   onAccountDelete?: () => void;
+  onShowToast?: (msg: string) => void;
 }
 
 const ProfileSection: React.FC<ProfileSectionProps> = ({ 
@@ -20,16 +21,27 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
   watchedMovies, 
   onViewAllWatched,
   onProfileUpdate,
-  onAccountDelete
+  onAccountDelete,
+  onShowToast
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(profile?.full_name || '');
+  const [letterboxdUser, setLetterboxdUser] = useState(profile?.letterboxd_username || '');
   const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (profile) {
+      setEditName(profile.full_name);
+      setLetterboxdUser(profile.letterboxd_username || '');
+    }
+  }, [profile]);
 
   const getInitials = (name: string) => {
     return name
@@ -115,7 +127,8 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       const success = await MovieService.saveProfile({
         ...profile,
         full_name: editName,
-        avatar_url: finalAvatarUrl
+        avatar_url: finalAvatarUrl,
+        letterboxd_username: letterboxdUser
       });
 
       if (success) {
@@ -126,6 +139,30 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       console.error("Save failed", e);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSync = async () => {
+    if (!profile || !letterboxdUser) return;
+    setIsSyncing(true);
+    setSyncProgress("Establishing connection...");
+    try {
+      const count = await MovieService.syncLetterboxdHistory(
+        letterboxdUser, 
+        profile.username,
+        (msg) => setSyncProgress(msg)
+      );
+      if (onShowToast) {
+        onShowToast(`Successfully synced ${count} movies!`);
+      } else {
+        alert(`Successfully synced ${count} movies!`);
+      }
+      onProfileUpdate();
+    } catch (err) {
+      alert("Sync failed. Check your username and feed visibility.");
+    } finally {
+      setIsSyncing(false);
+      setSyncProgress(null);
     }
   };
 
@@ -145,12 +182,13 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
   const cancelEdit = () => {
     setIsEditing(false);
     setEditName(profile?.full_name || '');
+    setLetterboxdUser(profile?.letterboxd_username || '');
     setEditPhoto(null);
     setPhotoPreview(null);
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto no-scrollbar pb-32">
+    <div className="flex-1 flex flex-col overflow-y-auto no-scrollbar pb-32 text-white">
       <div className="p-6 flex justify-between items-start">
         <div>
           <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-0.5 block">Your Identity</span>
@@ -223,6 +261,18 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
                     placeholder="Enter full name"
                     className="w-full bg-zinc-950 border-b-2 border-zinc-800 focus:border-[#DE3151] text-2xl font-black text-white text-center py-2 outline-none transition-all placeholder:text-zinc-800"
                   />
+                  
+                  <div className="bg-zinc-950/50 p-4 rounded-2xl border border-zinc-800 text-left">
+                    <label className="text-[9px] font-black uppercase text-zinc-600 tracking-widest block mb-2">Letterboxd Username</label>
+                    <input 
+                      type="text"
+                      value={letterboxdUser}
+                      onChange={(e) => setLetterboxdUser(e.target.value)}
+                      placeholder="e.g. username"
+                      className="w-full bg-transparent text-sm font-bold text-white outline-none"
+                    />
+                  </div>
+
                   <div className="flex gap-3 pt-4">
                     <button 
                       onClick={cancelEdit}
@@ -261,6 +311,56 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
           </div>
           <div className="absolute top-0 right-0 w-32 h-32 blur-[60px] opacity-10 rounded-full" style={{ backgroundColor: stats.personaColor }} />
         </motion.div>
+      </div>
+
+      {/* External Sync Section */}
+      <div className="px-6 mb-10">
+        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] mb-4">External Sync</h4>
+        <div className="bg-zinc-900 border border-white/5 rounded-[2rem] p-6 shadow-xl space-y-4">
+           <div className="flex items-center justify-between">
+              <div>
+                <h5 className="text-sm font-black text-white mb-1">Letterboxd History</h5>
+                <p className="text-[10px] font-medium text-zinc-500 italic">
+                  {letterboxdUser ? `Connected as: ${letterboxdUser}` : 'Connect your account to sync watched films.'}
+                </p>
+              </div>
+              {letterboxdUser && (
+                <button 
+                  onClick={handleSync}
+                  disabled={isSyncing}
+                  className="w-10 h-10 bg-[#DE3151]/10 rounded-xl flex items-center justify-center text-[#DE3151] hover:bg-[#DE3151] hover:text-white transition-all disabled:opacity-20"
+                >
+                  {isSyncing ? <Loader2 className="w-5 h-5 animate-spin" /> : <RefreshCw className="w-5 h-5" />}
+                </button>
+              )}
+           </div>
+           
+           {!letterboxdUser && !isEditing && (
+             <button 
+               onClick={() => setIsEditing(true)}
+               className="w-full py-4 bg-zinc-800 text-zinc-400 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:text-white transition-colors border border-white/5"
+             >
+               Configure Letterboxd
+             </button>
+           )}
+           
+           {letterboxdUser && (
+             <div className="space-y-3">
+               <button 
+                 onClick={handleSync}
+                 disabled={isSyncing}
+                 className="w-full py-4 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-[#DE3151]/10 disabled:opacity-50"
+               >
+                 {isSyncing ? 'Syncing Diary...' : 'Sync Recent History'}
+               </button>
+               {syncProgress && (
+                 <p className="text-[9px] font-bold text-[#DE3151] uppercase tracking-[0.2em] text-center animate-pulse">
+                   {syncProgress}
+                 </p>
+               )}
+             </div>
+           )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 px-6 mb-10">
@@ -343,7 +443,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         )}
       </div>
 
-      {/* Danger Zone */}
       <div className="px-6 mt-10 pt-10 border-t border-white/5">
         <div className="bg-red-950/20 border border-red-500/20 rounded-[2rem] p-8">
           <div className="flex items-center gap-3 mb-4 text-red-500">
@@ -360,7 +459,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
 
-      {/* Delete Confirmation Overlay */}
       <AnimatePresence>
         {showDeleteConfirm && (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">

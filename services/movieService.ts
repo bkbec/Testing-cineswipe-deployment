@@ -8,8 +8,88 @@ const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee';
 
 export class MovieService {
   /**
+   * Syncs recently watched movies from Letterboxd RSS feed
+   * Now with tmdb:movieId support and AllOrigins proxy
+   */
+  static async syncLetterboxdHistory(
+    username: string, 
+    userId: string, 
+    onProgress?: (msg: string) => void
+  ): Promise<number> {
+    if (!username) return 0;
+    try {
+      const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+      
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error("Could not fetch Letterboxd feed");
+      
+      const json = await response.json();
+      const responseText = json.contents;
+      
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(responseText, "text/xml");
+      const items = Array.from(xmlDoc.getElementsByTagName("item"));
+      
+      if (onProgress) {
+        onProgress(`Found ${items.length} movies in your diary. Syncing...`);
+      }
+
+      let count = 0;
+      
+      for (const item of items) {
+        // Try to get TMDB ID directly from Letterboxd namespace tags
+        // letterboxd:watchedDate, letterboxd:rewatch, letterboxd:filmTitle, letterboxd:filmYear, tmdb:movieId
+        const tmdbId = item.getElementsByTagName("tmdb:movieId")[0]?.textContent;
+        const lbMovieTitle = item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent || 
+                            item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent;
+        const lbMovieYear = item.getElementsByTagName("letterboxd:filmYear")[0]?.textContent ||
+                           item.getElementsByTagName("letterboxd:movieYear")[0]?.textContent;
+        
+        let movieData: Partial<Movie> | null = null;
+
+        if (tmdbId) {
+          // If we have a direct TMDB ID, use it!
+          const res = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
+          if (res.ok) {
+            const data = await res.json();
+            movieData = this.mapTMDBToMovie(data);
+          }
+        } 
+        
+        if (!movieData && (lbMovieTitle || item.getElementsByTagName("title")[0]?.textContent)) {
+          // Fallback to searching by title
+          const searchTitle = lbMovieTitle || item.getElementsByTagName("title")[0]?.textContent?.split(',')[0].trim();
+          if (searchTitle) {
+            const searchResults = await this.searchMovies(searchTitle, lbMovieYear ? parseInt(lbMovieYear) : undefined);
+            if (searchResults && searchResults.length > 0) {
+              movieData = searchResults[0];
+            }
+          }
+        }
+
+        if (movieData && movieData.id) {
+          const success = await this.submitInteraction({
+            userId,
+            movieId: String(movieData.id),
+            title: movieData.title || '',
+            posterUrl: movieData.posterUrl || '',
+            type: InteractionType.WATCHED,
+            timestamp: Date.now(),
+            notes: 'Synced from Letterboxd'
+          });
+          if (success) count++;
+        }
+      }
+      return count;
+    } catch (e) {
+      console.error("Letterboxd sync failed:", e);
+      throw e;
+    }
+  }
+
+  /**
    * AI Taste Analysis
-   * Summarizes user behavior to drive better discovery
    */
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
     try {
@@ -70,12 +150,10 @@ export class MovieService {
       const interactions = await this.getInteractions(userId);
       const swipedIds = new Set(interactions.map(i => String(i.movieId)));
       
-      // Perform AI Taste Analysis on Page 1 or if filters changed
       const taste = (page === 1 || filters?.wildcard) ? await this.analyzeTaste(userId, filters) : null;
       
       let candidateMovies: Movie[] = [];
 
-      // Source 1: Gemini's direct recommendations
       if (taste?.suggested_titles?.length > 0) {
         const aiMovies = await Promise.all(
           taste.suggested_titles.map(async (title: string) => {
@@ -87,13 +165,11 @@ export class MovieService {
         candidateMovies.push(...detailedAiMovies);
       }
 
-      // Source 2: TMDB Discover with AI-refined parameters
       let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&language=en-US`;
       
       if (taste?.genre_ids?.length > 0) {
         discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
       } else if (filters?.genre) {
-        // Map common strings to IDs if taste fails
         const genreMap: Record<string, number> = { 'action': 28, 'comedy': 35, 'horror': 27, 'sci-fi': 878, 'romance': 10749 };
         if (genreMap[filters.genre.toLowerCase()]) {
           discoverUrl += `&with_genres=${genreMap[filters.genre.toLowerCase()]}`;
@@ -109,7 +185,6 @@ export class MovieService {
       const discovered = (data.results || []).map((m: any) => this.mapTMDBToMovie(m));
       candidateMovies.push(...discovered);
 
-      // Clean, filter duplicates/swipes, and sort
       const filtered = candidateMovies.filter((m, index, self) => 
         m && m.id && 
         !swipedIds.has(m.id) &&
@@ -137,6 +212,7 @@ export class MovieService {
         username: p.username,
         full_name: p.full_name,
         avatar_url: p.avatar_url,
+        letterboxd_username: p.letterboxd_username,
         isOnboarded: true
       }));
     } catch (e) {
@@ -149,7 +225,8 @@ export class MovieService {
       const { error } = await supabase.from('profiles').upsert({
           username: profile.username,
           full_name: profile.full_name,
-          avatar_url: profile.avatar_url
+          avatar_url: profile.avatar_url,
+          letterboxd_username: profile.letterboxd_username
         }, { onConflict: 'username' });
       return !error;
     } catch (e) {
@@ -268,10 +345,13 @@ export class MovieService {
     }
   }
 
-  static async searchMovies(query: string): Promise<Partial<Movie>[]> {
+  static async searchMovies(query: string, year?: number): Promise<Partial<Movie>[]> {
     if (!query || query.length < 2) return [];
     try {
-      const response = await fetch(`${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`);
+      let url = `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`;
+      if (year) url += `&year=${year}`;
+      
+      const response = await fetch(url);
       const data = await response.json();
       return (data.results || []).slice(0, 15).map((m: any) => ({
         id: String(m.id),
