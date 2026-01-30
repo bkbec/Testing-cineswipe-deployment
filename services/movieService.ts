@@ -7,6 +7,13 @@ import Papa from 'papaparse';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee'; 
 
+const TMDB_GENRES: Record<number, string> = {
+  28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
+  99: 'Documentary', 18: 'Drama', 10751: 'Family', 14: 'Fantasy', 36: 'History',
+  27: 'Horror', 10402: 'Music', 9648: 'Mystery', 10749: 'Romance', 878: 'Sci-Fi',
+  10770: 'TV Movie', 53: 'Thriller', 10752: 'War', 37: 'Western'
+};
+
 export class MovieService {
   /**
    * Syncs Letterboxd history using the exported watched.csv file.
@@ -28,7 +35,6 @@ export class MovieService {
             
             console.log(`Successfully parsed CSV with ${total} entries.`);
             
-            // Letterboxd CSV headers: Date, Name, Year, Letterboxd URI, Rating
             for (let i = 0; i < total; i++) {
               const row = rows[i];
               const title = row.Name || row.Title;
@@ -40,12 +46,10 @@ export class MovieService {
               if (onProgress) onProgress(`Matching: ${title}`, percent);
 
               try {
-                // Search TMDB for match
                 const searchResults = await this.searchMovies(title, year ? parseInt(year) : undefined);
                 if (searchResults && searchResults.length > 0) {
                   const match = searchResults[0];
                   
-                  // Submit as WATCHED
                   await this.submitInteraction({
                     userId,
                     movieId: String(match.id),
@@ -61,7 +65,6 @@ export class MovieService {
                 console.error(`TMDB mapping failed for ${title}:`, e);
               }
 
-              // Minor delay to respect TMDB rate limits (40 req/10s)
               if (i % 5 === 0) await new Promise(r => setTimeout(r, 100));
             }
 
@@ -75,9 +78,7 @@ export class MovieService {
     });
   }
 
-  // Keep remaining service methods...
   static async validateLetterboxdUser(username: string): Promise<boolean> {
-     // Legacy RSS validation - No longer strictly needed for CSV flow but keeping signature
      return !!username;
   }
 
@@ -360,6 +361,15 @@ export class MovieService {
 
   private static mapTMDBToMovie(m: any): Movie {
     if (!m) return { id: '0', title: 'Unknown', description: '', posterUrl: '', backdropUrl: '', releaseYear: 0, genres: [], ratings: { rottenTomatoesCritic: 0, rottenTomatoesAudience: 0, letterboxd: 0, imdb: 0 } };
+    
+    // Discovery results return genre_ids, details return genres object array
+    let genreNames: string[] = [];
+    if (m.genres) {
+      genreNames = m.genres.map((g: any) => g.name);
+    } else if (m.genre_ids) {
+      genreNames = m.genre_ids.map((id: number) => TMDB_GENRES[id]).filter(Boolean);
+    }
+
     return {
       id: String(m.id),
       title: m.title || m.name || 'Untitled',
@@ -368,7 +378,7 @@ export class MovieService {
       releaseYear: m.release_date ? new Date(m.release_date).getFullYear() : 0,
       posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster',
       backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
-      genres: m.genres ? m.genres.map((g: any) => g.name) : [],
+      genres: genreNames,
       ratings: {
         rottenTomatoesCritic: Math.round((m.vote_average || 0) * 10),
         rottenTomatoesAudience: Math.round((m.vote_average || 0) * 10 + 2),

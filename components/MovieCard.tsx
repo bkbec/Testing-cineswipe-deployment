@@ -97,11 +97,17 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
             <div className="flex items-center gap-2 mb-3 shrink-0 overflow-hidden">
                {/* Genre Tags - Prominently positioned to the left */}
                <div className="flex gap-1.5 shrink-0">
-                  {movie.genres.slice(0, 1).map((genre) => (
-                    <span key={genre} className="px-2 py-0.5 bg-[#DE3151] rounded-md text-[8px] font-black text-white uppercase tracking-wider shadow-lg shadow-[#DE3151]/20">
-                      {genre}
+                  {movie.genres && movie.genres.length > 0 ? (
+                    movie.genres.slice(0, 1).map((genre) => (
+                      <span key={genre} className="px-2 py-0.5 bg-[#DE3151] rounded-md text-[8px] font-black text-white uppercase tracking-wider shadow-lg shadow-[#DE3151]/20">
+                        {genre}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="px-2 py-0.5 bg-zinc-800 rounded-md text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                      Movie
                     </span>
-                  ))}
+                  )}
                </div>
                
                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 px-2 py-0.5 rounded-md shadow-lg">
