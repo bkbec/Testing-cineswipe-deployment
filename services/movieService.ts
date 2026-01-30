@@ -2,118 +2,83 @@
 import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters } from '../types';
 import { supabase } from '../lib/supabase';
 import { GoogleGenAI, Type } from "@google/genai";
+import Papa from 'papaparse';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee'; 
 
 export class MovieService {
   /**
-   * Simple validation to check if we can reach the Letterboxd feed via CORSproxy.io.
+   * Syncs Letterboxd history using the exported watched.csv file.
    */
-  static async validateLetterboxdUser(username: string): Promise<boolean> {
-    if (!username) throw new Error("Username is required.");
-    try {
-      const rssUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://letterboxd.com/' + username + '/rss/');
-      
-      const response = await fetch(rssUrl);
-      if (!response.ok) throw new Error("Sync failed. Check console for details.");
-      
-      const content = await response.text();
+  static async syncLetterboxdCSV(
+    file: File, 
+    userId: string, 
+    onProgress?: (msg: string, percent: number) => void
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          try {
+            const rows = results.data as any[];
+            const total = rows.length;
+            let successCount = 0;
+            
+            console.log(`Successfully parsed CSV with ${total} entries.`);
+            
+            // Letterboxd CSV headers: Date, Name, Year, Letterboxd URI, Rating
+            for (let i = 0; i < total; i++) {
+              const row = rows[i];
+              const title = row.Name || row.Title;
+              const year = row.Year;
+              
+              if (!title) continue;
 
-      if (!content || content.includes('404') || content.includes('Page not found')) {
-        throw new Error("Sync failed. Check console for details.");
-      }
+              const percent = Math.round(((i + 1) / total) * 100);
+              if (onProgress) onProgress(`Matching: ${title}`, percent);
 
-      return true;
-    } catch (e: any) {
-      console.error("Letterboxd validation error:", e);
-      throw new Error("Sync failed. Check console for details.");
-    }
+              try {
+                // Search TMDB for match
+                const searchResults = await this.searchMovies(title, year ? parseInt(year) : undefined);
+                if (searchResults && searchResults.length > 0) {
+                  const match = searchResults[0];
+                  
+                  // Submit as WATCHED
+                  await this.submitInteraction({
+                    userId,
+                    movieId: String(match.id),
+                    title: match.title || title,
+                    posterUrl: match.posterUrl || '',
+                    type: InteractionType.WATCHED,
+                    timestamp: Date.now(),
+                    notes: 'Letterboxd CSV Import'
+                  });
+                  successCount++;
+                }
+              } catch (e) {
+                console.error(`TMDB mapping failed for ${title}:`, e);
+              }
+
+              // Minor delay to respect TMDB rate limits (40 req/10s)
+              if (i % 5 === 0) await new Promise(r => setTimeout(r, 100));
+            }
+
+            resolve(successCount);
+          } catch (err) {
+            reject(err);
+          }
+        },
+        error: (err) => reject(err)
+      });
+    });
   }
 
-  /**
-   * Syncs Letterboxd history using corsproxy.io and manual XML parsing.
-   */
-  static async syncLetterboxdHistory(
-    username: string, 
-    userId: string, 
-    onProgress?: (msg: string) => void
-  ): Promise<number> {
-    if (!username) return 0;
-    try {
-      const rssUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://letterboxd.com/' + username + '/rss/');
-      
-      const response = await fetch(rssUrl);
-      if (!response.ok) throw new Error("Sync failed. Check console for details.");
-      
-      const responseText = await response.text();
-      
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(responseText, "text/xml");
-      const items = Array.from(xmlDoc.getElementsByTagName("item"));
-      
-      console.log('Successfully fetched feed with', items.length, 'movies');
-      
-      if (onProgress) {
-        onProgress(`Found ${items.length} films. Syncing...`);
-      }
-
-      let count = 0;
-      for (const item of items) {
-        // Specifically look for tmdb:movieId as the primary match
-        const tmdbId = item.getElementsByTagName("tmdb:movieId")[0]?.textContent;
-        
-        // Fallback to letterboxd:movieTitle or letterboxd:filmTitle
-        const lbMovieTitle = item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent || 
-                            item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent ||
-                            item.getElementsByTagName("title")[0]?.textContent?.split(',')[0].trim();
-        
-        const lbMovieYear = item.getElementsByTagName("letterboxd:movieYear")[0]?.textContent ||
-                           item.getElementsByTagName("letterboxd:filmYear")[0]?.textContent;
-        
-        let movieData: Partial<Movie> | null = null;
-
-        if (tmdbId) {
-          try {
-            const res = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
-            if (res.ok) {
-              const data = await res.json();
-              movieData = this.mapTMDBToMovie(data);
-            }
-          } catch (e) {
-            console.error("TMDB ID fetch failed:", tmdbId, e);
-          }
-        } 
-        
-        if (!movieData && lbMovieTitle) {
-          try {
-            const searchResults = await this.searchMovies(lbMovieTitle, lbMovieYear ? parseInt(lbMovieYear) : undefined);
-            if (searchResults && searchResults.length > 0) {
-              movieData = searchResults[0];
-            }
-          } catch (e) {
-            console.error("Search enrichment failed for:", lbMovieTitle, e);
-          }
-        }
-
-        if (movieData && movieData.id) {
-          const success = await this.submitInteraction({
-            userId,
-            movieId: String(movieData.id),
-            title: movieData.title || '',
-            posterUrl: movieData.posterUrl || '',
-            type: InteractionType.WATCHED,
-            timestamp: Date.now(),
-            notes: 'Letterboxd Sync'
-          });
-          if (success) count++;
-        }
-      }
-      return count;
-    } catch (e) {
-      console.error("Detailed sync error:", e);
-      throw new Error("Sync failed. Check console for details.");
-    }
+  // Keep remaining service methods...
+  static async validateLetterboxdUser(username: string): Promise<boolean> {
+     // Legacy RSS validation - No longer strictly needed for CSV flow but keeping signature
+     return !!username;
   }
 
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {

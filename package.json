@@ -14,7 +14,8 @@
     "framer-motion": "11.11.17",
     "lucide-react": "0.460.0",
     "@supabase/supabase-js": "2.45.4",
-    "@google/genai": "^1.38.0"
+    "@google/genai": "^1.38.0",
+    "papaparse": "5.4.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

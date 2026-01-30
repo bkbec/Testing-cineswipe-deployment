@@ -156,12 +156,24 @@ const App: React.FC = () => {
   if (showStartPage && !userName) {
     return (
       <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8">
-        <Logo className="w-32 h-32 mb-10 drop-shadow-[0_0_30px_rgba(222,49,81,0.6)]" />
-        <h1 className="text-6xl font-black text-white tracking-tighter uppercase mb-12 italic">CineMatch</h1>
-        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setShowStartPage(false)} className="px-12 py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-4">
-          <Play className="w-4 h-4 fill-white" />
-          Enter Theater
-        </motion.button>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1.2 }}
+          className="flex flex-col items-center text-center"
+        >
+          <Logo className="w-10 h-10 mb-8 drop-shadow-[0_0_15px_rgba(222,49,81,0.2)]" />
+          <h1 className="text-[10px] font-black text-zinc-500 tracking-[1em] uppercase mb-20 pl-[1em]">CineMatch</h1>
+          
+          <motion.button 
+            whileHover={{ scale: 1.02, brightness: 1.1 }} 
+            whileTap={{ scale: 0.98 }} 
+            onClick={() => setShowStartPage(false)} 
+            className="px-10 py-3.5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-[0.3em] text-[9px] shadow-2xl shadow-[#DE3151]/20 transition-all duration-500"
+          >
+            Enter Theater
+          </motion.button>
+        </motion.div>
       </div>
     );
   }

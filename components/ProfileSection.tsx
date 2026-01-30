@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus, Trash2, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle, BarChart3, Users, Zap, Flame } from 'lucide-react';
+import { Star, Clapperboard, Film, Trophy, Clock, ChevronRight, Edit3, Camera, Check, X, Loader2, Plus, Trash2, AlertTriangle, RefreshCw, CheckCircle2, AlertCircle, BarChart3, Users, Zap, Flame, UploadCloud, FileText } from 'lucide-react';
 import { Movie, UserProfile } from '../types';
 import { MovieService } from '../services/movieService';
 
@@ -26,13 +26,13 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(profile?.full_name || '');
-  const [letterboxdUser, setLetterboxdUser] = useState(profile?.letterboxd_username || '');
   
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isConnected, setIsConnected] = useState(!!profile?.letterboxd_username);
-  const [letterboxdError, setLetterboxdError] = useState<string | null>(null);
+  // CSV Import States
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
+  const [syncPercent, setSyncPercent] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -40,46 +40,44 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (profile) {
       setEditName(profile.full_name);
-      setLetterboxdUser(profile.letterboxd_username || '');
-      setIsConnected(!!profile.letterboxd_username);
     }
   }, [profile]);
 
-  const handleConnect = async () => {
-    if (!letterboxdUser) return;
-    setIsConnecting(true);
-    setLetterboxdError(null);
-    try {
-      await MovieService.validateLetterboxdUser(letterboxdUser);
-      setIsConnected(true);
-      if (onShowToast) onShowToast("Letterboxd account recognized!");
-    } catch (e: any) {
-      setLetterboxdError(e.message);
-      if (onShowToast) onShowToast(e.message);
-      setIsConnected(false);
-    } finally {
-      setIsConnecting(false);
+  const handleCSVSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.name.endsWith('.csv')) {
+        setCsvFile(file);
+        setError(null);
+      } else {
+        setError("Invalid file. Please use .csv");
+      }
     }
   };
 
-  const handleSync = async () => {
-    if (!profile || !isConnected || !letterboxdUser) return;
+  const handleSyncCSV = async () => {
+    if (!profile || !csvFile) return;
     setIsSyncing(true);
-    setSyncProgress("Establishing connection...");
+    setSyncPercent(0);
     try {
-      const count = await MovieService.syncLetterboxdHistory(
-        letterboxdUser, 
+      const count = await MovieService.syncLetterboxdCSV(
+        csvFile, 
         profile.username,
-        (msg) => setSyncProgress(msg)
+        (msg, percent) => {
+          setSyncProgress(msg);
+          setSyncPercent(percent);
+        }
       );
-      if (onShowToast) onShowToast(`Successfully synced ${count} films!`);
+      if (onShowToast) onShowToast(`Successfully imported ${count} films!`);
+      setCsvFile(null);
       onProfileUpdate();
     } catch (err: any) {
-      if (onShowToast) onShowToast("Sync failed. Check console for details.");
+      setError("Import failed. Ensure valid CSV.");
     } finally {
       setIsSyncing(false);
       setSyncProgress(null);
@@ -98,8 +96,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
       const success = await MovieService.saveProfile({
         ...profile,
         full_name: editName,
-        avatar_url: finalAvatarUrl,
-        letterboxd_username: isConnected ? letterboxdUser : ''
+        avatar_url: finalAvatarUrl
       });
       if (success) {
         setIsEditing(false);
@@ -116,22 +113,14 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
 
   const stats = useMemo(() => {
     const allInteracted = [...likedMovies, ...watchedMovies];
-    
     const genreCounts: Record<string, number> = {};
     allInteracted.forEach(m => m.genres.forEach(g => genreCounts[g] = (genreCounts[g] || 0) + 1));
     const sortedGenres = Object.entries(genreCounts).sort(([, a], [, b]) => b - a);
     const topGenres = sortedGenres.slice(0, 4).map(([name, count]) => ({ name, count }));
     
     const directorCounts: Record<string, number> = {};
-    allInteracted.forEach(m => {
-      if (m.director) {
-        directorCounts[m.director] = (directorCounts[m.director] || 0) + 1;
-      }
-    });
-    const topDirectors = Object.entries(directorCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([name, count]) => ({ name, count }));
+    allInteracted.forEach(m => { if (m.director) directorCounts[m.director] = (directorCounts[m.director] || 0) + 1; });
+    const topDirectors = Object.entries(directorCounts).sort(([, a], [, b]) => b - a).slice(0, 3).map(([name, count]) => ({ name, count }));
 
     let persona = "Movie Explorer";
     const primary = topGenres[0]?.name;
@@ -159,7 +148,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         <motion.div layout className="relative overflow-hidden bg-zinc-900/40 border border-white/5 rounded-[2rem] p-8 shadow-2xl">
           <div className="relative z-10 flex flex-col items-center text-center">
             <div className="relative mb-5">
-              <div onClick={() => isEditing && fileInputRef.current?.click()} className={`w-28 h-28 rounded-[2rem] bg-zinc-950 border-2 overflow-hidden flex items-center justify-center ${isEditing ? 'border-[#DE3151] cursor-pointer' : 'border-zinc-800'}`}>
+              <div onClick={() => isEditing && fileInputRef.current?.click()} className={`w-28 h-28 rounded-[2.5rem] bg-zinc-950 border-2 overflow-hidden flex items-center justify-center ${isEditing ? 'border-[#DE3151] cursor-pointer' : 'border-zinc-800'}`}>
                 {(photoPreview || profile?.avatar_url) ? <img src={photoPreview || profile?.avatar_url} className="w-full h-full object-cover" /> : <span className="text-3xl font-black">{profile ? getInitials(profile.full_name) : '??'}</span>}
                 {isEditing && <div className="absolute inset-0 bg-black/60 flex items-center justify-center"><Camera className="w-6 h-6 text-white opacity-80" /></div>}
               </div>
@@ -194,20 +183,12 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </motion.div>
       </div>
 
-      {/* Cinematic DNA - Statistics */}
       <div className="px-6 mb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] flex items-center gap-2">
-            <BarChart3 className="w-3.5 h-3.5 text-[#DE3151]" />
-            Cinematic DNA
-          </h4>
-          <div className="flex items-center gap-1.5 text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-             <Flame className="w-3 h-3 fill-amber-500" />
-             <span className="text-[9px] font-black uppercase">Elite</span>
-          </div>
-        </div>
+        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] mb-4 flex items-center gap-2">
+          <BarChart3 className="w-3.5 h-3.5 text-[#DE3151]" />
+          Cinematic DNA
+        </h4>
         <div className="grid grid-cols-1 gap-4">
-           {/* Genre Breakdown */}
            <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl">
              <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest block mb-5">Genre Fluency</label>
              <div className="space-y-5">
@@ -218,81 +199,52 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
                      <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">{Math.round((g.count / (watchedMovies.length || 1)) * 100)}%</span>
                    </div>
                    <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
-                     <motion.div 
-                       initial={{ width: 0 }}
-                       animate={{ width: `${Math.min(100, (g.count / (stats.topGenres[0]?.count || 1)) * 100)}%` }}
-                       transition={{ duration: 1.2, delay: i * 0.15 }}
-                       className="h-full bg-gradient-to-r from-[#DE3151] to-[#DE3151]/40" 
-                     />
+                     <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(100, (g.count / (stats.topGenres[0]?.count || 1)) * 100)}%` }} transition={{ duration: 1.2, delay: i * 0.15 }} className="h-full bg-gradient-to-r from-[#DE3151] to-[#DE3151]/40" />
                    </div>
                  </div>
                )) : (
-                 <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Keep swiping to reveal your data...</p>
-               )}
-             </div>
-           </div>
-
-           {/* Director's Cut */}
-           <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl">
-             <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest block mb-4">Auteur Loyalty</label>
-             <div className="flex flex-wrap gap-2.5">
-               {stats.topDirectors.length > 0 ? stats.topDirectors.map(d => (
-                 <div key={d.name} className="px-4 py-3 bg-zinc-950 border border-white/5 rounded-2xl flex items-center gap-3 group hover:border-[#DE3151]/30 transition-all">
-                   <div className="w-6 h-6 bg-zinc-900 border border-white/10 rounded-lg flex items-center justify-center text-[9px] font-black group-hover:bg-[#DE3151] group-hover:text-white transition-colors">
-                     {d.count}
-                   </div>
-                   <span className="text-[11px] font-black text-zinc-400 group-hover:text-white transition-colors uppercase tracking-tight">{d.name}</span>
-                 </div>
-               )) : (
-                 <p className="text-[10px] text-zinc-600 font-bold italic text-center w-full py-4">Directors you love will appear here.</p>
+                 <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Swipe to reveal your data...</p>
                )}
              </div>
            </div>
         </div>
       </div>
 
-      {/* Letterboxd Sync */}
+      {/* CSV Sync Section */}
       <div className="px-6 mb-10">
-        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">External Sync</h4>
-        <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl space-y-5">
-           <div className="flex items-center justify-between">
-              <div>
-                <h5 className="text-[11px] font-black text-white mb-1 uppercase tracking-tight">Letterboxd Network</h5>
-                {isConnected ? (
-                  <div className="flex items-center gap-2 text-green-500 text-[9px] font-black uppercase tracking-widest">
-                    <CheckCircle2 className="w-3 h-3" /> Syncing: {letterboxdUser}
-                  </div>
-                ) : (
-                  <p className="text-[9px] text-zinc-600 uppercase font-black tracking-widest">Connect for auto-diary history.</p>
-                )}
-              </div>
-              {isConnected && (
-                <button onClick={() => { setIsConnected(false); setLetterboxdUser(''); }} className="text-zinc-700 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
-              )}
+        <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-4">Letterboxd Vault</h4>
+        <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl space-y-6">
+           <div 
+             onClick={() => !isSyncing && csvInputRef.current?.click()}
+             className={`p-6 border-2 border-dashed rounded-2xl transition-all flex flex-col items-center justify-center cursor-pointer ${csvFile ? 'border-[#DE3151] bg-[#DE3151]/5' : error ? 'border-red-500/30' : 'border-zinc-800 hover:border-[#DE3151]/20'}`}
+           >
+             {csvFile ? (
+               <div className="flex items-center gap-3">
+                 <FileText className="w-5 h-5 text-[#DE3151]" />
+                 <span className="text-[10px] font-black text-white uppercase truncate max-w-[120px]">{csvFile.name}</span>
+               </div>
+             ) : (
+               <div className="flex flex-col items-center gap-2">
+                 <UploadCloud className="w-6 h-6 text-zinc-700" />
+                 <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">Import watched.csv</span>
+               </div>
+             )}
+             <input type="file" ref={csvInputRef} onChange={handleCSVSelect} accept=".csv" className="hidden" />
            </div>
 
-           {!isConnected ? (
-             <div className="space-y-4">
-               <input 
-                 type="text" 
-                 placeholder="Letterboxd Username" 
-                 value={letterboxdUser} 
-                 onChange={(e) => { setLetterboxdUser(e.target.value); setLetterboxdError(null); }}
-                 className="w-full bg-zinc-950 border border-zinc-800 p-3.5 rounded-xl text-xs text-white font-black outline-none focus:border-[#DE3151] transition-all"
-               />
-               <button onClick={handleConnect} disabled={isConnecting || !letterboxdUser} className="w-full py-4 bg-white text-black rounded-xl font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all">
-                 {isConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                 Recognize Account
-               </button>
+           {error && <p className="text-[9px] font-black text-red-500 uppercase tracking-widest text-center">{error}</p>}
+
+           {isSyncing ? (
+             <div className="space-y-3">
+                <div className="h-1 w-full bg-zinc-950 rounded-full overflow-hidden">
+                  <motion.div animate={{ width: `${syncPercent}%` }} className="h-full bg-[#DE3151]" />
+                </div>
+                <p className="text-[8px] font-black text-[#DE3151] uppercase tracking-[0.2em] text-center animate-pulse truncate">{syncProgress}</p>
              </div>
-           ) : (
-             <div className="space-y-4">
-               <button onClick={handleSync} disabled={isSyncing} className="w-full py-4 bg-[#DE3151] text-white rounded-xl font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-xl shadow-[#DE3151]/20 active:scale-95 transition-all">
-                 {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                 {isSyncing ? 'Syncing...' : 'Sync History'}
-               </button>
-               {syncProgress && <p className="text-[9px] font-bold text-[#DE3151] uppercase text-center animate-pulse tracking-widest">{syncProgress}</p>}
-             </div>
+           ) : csvFile && (
+             <button onClick={handleSyncCSV} className="w-full py-4 bg-[#DE3151] text-white rounded-xl font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-xl shadow-[#DE3151]/20 active:scale-95 transition-all">
+               <RefreshCw className="w-3.5 h-3.5" /> Start Import
+             </button>
            )}
         </div>
       </div>
@@ -308,7 +260,6 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
         </div>
       </div>
 
-      {/* Archive */}
       <div className="px-6 mb-10">
         <div className="flex justify-between items-end mb-6">
           <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest italic">The Vault</h4>
