@@ -8,8 +8,38 @@ const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee';
 
 export class MovieService {
   /**
-   * Syncs recently watched movies from Letterboxd RSS feed
-   * Now with tmdb:movieId support and AllOrigins proxy
+   * Simple validation to check if we can reach the Letterboxd feed via AllOrigins.
+   */
+  static async validateLetterboxdUser(username: string): Promise<boolean> {
+    if (!username) throw new Error("Username is required.");
+    try {
+      const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+      
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error("Sync failed. Check console for details.");
+      
+      const data = await response.json();
+      const content = data.contents;
+
+      if (!content || content.includes('404') || content.includes('Page not found')) {
+        throw new Error("Sync failed. Check console for details.");
+      }
+
+      return true;
+    } catch (e: any) {
+      console.error("Letterboxd validation error:", e);
+      throw new Error("Sync failed. Check console for details.");
+    }
+  }
+
+  /**
+   * Finalized Sync Logic:
+   * 1. Uses AllOrigins to bypass CORS.
+   * 2. Extracts XML from data.contents.
+   * 3. Priority extraction of tmdb:movieId.
+   * 4. Fallback to title/year search.
+   * 5. Enrichment via TMDB details.
    */
   static async syncLetterboxdHistory(
     username: string, 
@@ -22,7 +52,7 @@ export class MovieService {
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
       
       const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error("Could not fetch Letterboxd feed");
+      if (!response.ok) throw new Error("Sync failed. Check console for details.");
       
       const json = await response.json();
       const responseText = json.contents;
@@ -32,39 +62,43 @@ export class MovieService {
       const items = Array.from(xmlDoc.getElementsByTagName("item"));
       
       if (onProgress) {
-        onProgress(`Found ${items.length} movies in your diary. Syncing...`);
+        onProgress(`Found ${items.length} films. Syncing...`);
       }
 
       let count = 0;
-      
       for (const item of items) {
-        // Try to get TMDB ID directly from Letterboxd namespace tags
-        // letterboxd:watchedDate, letterboxd:rewatch, letterboxd:filmTitle, letterboxd:filmYear, tmdb:movieId
+        // XML parsing with namespace support
         const tmdbId = item.getElementsByTagName("tmdb:movieId")[0]?.textContent;
         const lbMovieTitle = item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent || 
-                            item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent;
+                            item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent ||
+                            item.getElementsByTagName("title")[0]?.textContent?.split(',')[0].trim();
         const lbMovieYear = item.getElementsByTagName("letterboxd:filmYear")[0]?.textContent ||
                            item.getElementsByTagName("letterboxd:movieYear")[0]?.textContent;
         
         let movieData: Partial<Movie> | null = null;
 
+        // Path 1: Targeted TMDB ID enrichment
         if (tmdbId) {
-          // If we have a direct TMDB ID, use it!
-          const res = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
-          if (res.ok) {
-            const data = await res.json();
-            movieData = this.mapTMDBToMovie(data);
+          try {
+            const res = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
+            if (res.ok) {
+              const data = await res.json();
+              movieData = this.mapTMDBToMovie(data);
+            }
+          } catch (e) {
+            console.error("TMDB ID fetch failed:", tmdbId, e);
           }
         } 
         
-        if (!movieData && (lbMovieTitle || item.getElementsByTagName("title")[0]?.textContent)) {
-          // Fallback to searching by title
-          const searchTitle = lbMovieTitle || item.getElementsByTagName("title")[0]?.textContent?.split(',')[0].trim();
-          if (searchTitle) {
-            const searchResults = await this.searchMovies(searchTitle, lbMovieYear ? parseInt(lbMovieYear) : undefined);
+        // Path 2: Fallback Title/Year search enrichment
+        if (!movieData && lbMovieTitle) {
+          try {
+            const searchResults = await this.searchMovies(lbMovieTitle, lbMovieYear ? parseInt(lbMovieYear) : undefined);
             if (searchResults && searchResults.length > 0) {
               movieData = searchResults[0];
             }
+          } catch (e) {
+            console.error("Search enrichment failed for:", lbMovieTitle, e);
           }
         }
 
@@ -76,21 +110,18 @@ export class MovieService {
             posterUrl: movieData.posterUrl || '',
             type: InteractionType.WATCHED,
             timestamp: Date.now(),
-            notes: 'Synced from Letterboxd'
+            notes: 'Letterboxd Sync'
           });
           if (success) count++;
         }
       }
       return count;
     } catch (e) {
-      console.error("Letterboxd sync failed:", e);
-      throw e;
+      console.error("Detailed sync error:", e);
+      throw new Error("Sync failed. Check console for details.");
     }
   }
 
-  /**
-   * AI Taste Analysis
-   */
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
     try {
       const interactions = await this.getInteractions(userId);
@@ -98,24 +129,14 @@ export class MovieService {
       
       const likes = interactions.filter(i => i.type === InteractionType.YES).map(i => i.title);
       const highRated = interactions.filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
-        .map(i => `${i.title} (${i.personalRating} stars, Notes: ${i.notes || 'N/A'})`);
+        .map(i => `${i.title} (${i.personalRating} stars)`);
 
-      const prompt = `You are a cinematic taste expert. Analyze this user's profile to find their next favorite movies.
-      
-      Liked Movies: ${likes.join(', ')}
-      Highly Rated Watched Movies: ${highRated.join(' | ')}
-      
-      Current Request Context:
+      const prompt = `Analyze taste DNA for user recommendations.
+      Likes: ${likes.join(', ')}
+      Highly Rated: ${highRated.join(' | ')}
       Mood: ${filters?.mood || 'Any'}
-      Target Genre: ${filters?.genre || 'Any'}
-      Wildcard Mode: ${filters?.wildcard ? 'YES (Find something different but still matching their quality bar)' : 'NO (Stay in their comfort zone)'}
-
-      Task:
-      1. Identify the core "DNA" of their taste.
-      2. Suggest 10 specific movie titles they likely haven't seen but would love.
-      3. Provide TMDB Genre IDs to filter for.
-      
-      Return as JSON.`;
+      Genre: ${filters?.genre || 'Any'}
+      Wildcard: ${filters?.wildcard ? 'YES' : 'NO'}`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -127,7 +148,6 @@ export class MovieService {
             properties: {
               suggested_titles: { type: Type.ARRAY, items: { type: Type.STRING } },
               genre_ids: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-              keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
               reasoning: { type: Type.STRING }
             },
             required: ["suggested_titles", "genre_ids"]
@@ -137,20 +157,15 @@ export class MovieService {
 
       return JSON.parse(response.text || '{}');
     } catch (e) {
-      console.error("Taste analysis failed:", e);
       return null;
     }
   }
 
-  /**
-   * Discovery Algorithm
-   */
   static async getDiscoverQueue(userId: string, page: number = 1, filters?: DiscoveryFilters): Promise<{ movies: Movie[], nextPage: number }> {
     try {
       const interactions = await this.getInteractions(userId);
       const swipedIds = new Set(interactions.map(i => String(i.movieId)));
-      
-      const taste = (page === 1 || filters?.wildcard) ? await this.analyzeTaste(userId, filters) : null;
+      const taste = (page === 1) ? await this.analyzeTaste(userId, filters) : null;
       
       let candidateMovies: Movie[] = [];
 
@@ -165,20 +180,9 @@ export class MovieService {
         candidateMovies.push(...detailedAiMovies);
       }
 
-      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&language=en-US`;
-      
-      if (taste?.genre_ids?.length > 0) {
-        discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
-      } else if (filters?.genre) {
-        const genreMap: Record<string, number> = { 'action': 28, 'comedy': 35, 'horror': 27, 'sci-fi': 878, 'romance': 10749 };
-        if (genreMap[filters.genre.toLowerCase()]) {
-          discoverUrl += `&with_genres=${genreMap[filters.genre.toLowerCase()]}`;
-        }
-      }
-
-      if (filters?.maxRuntime) {
-        discoverUrl += `&with_runtime.lte=${filters.maxRuntime}`;
-      }
+      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=150&language=en-US`;
+      if (taste?.genre_ids?.length > 0) discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
+      if (filters?.maxRuntime) discoverUrl += `&with_runtime.lte=${filters.maxRuntime}`;
 
       const res = await fetch(discoverUrl);
       const data = await res.json();
@@ -186,24 +190,24 @@ export class MovieService {
       candidateMovies.push(...discovered);
 
       const filtered = candidateMovies.filter((m, index, self) => 
-        m && m.id && 
-        !swipedIds.has(m.id) &&
-        self.findIndex(t => t.id === m.id) === index
+        m && m.id && !swipedIds.has(m.id) && self.findIndex(t => t.id === m.id) === index
       );
 
-      return { 
-        movies: filtered, 
-        nextPage: page + 1 
-      };
+      // Aggressive replenishment: if filters/swipes leave us with too few films, fetch the next page immediately
+      if (filtered.length < 10 && page < 30) {
+        const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
+        return {
+          movies: [...filtered, ...nextBatch.movies],
+          nextPage: nextBatch.nextPage
+        };
+      }
+
+      return { movies: filtered, nextPage: page + 1 };
     } catch (error) {
-      console.error("Discover load error", error);
       return { movies: [], nextPage: page };
     }
   }
 
-  /**
-   * Profiles Management
-   */
   static async getAllProfiles(): Promise<UserProfile[]> {
     try {
       const { data, error } = await supabase.from('profiles').select('*');
@@ -350,7 +354,6 @@ export class MovieService {
     try {
       let url = `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&language=en-US&page=1&include_adult=false`;
       if (year) url += `&year=${year}`;
-      
       const response = await fetch(url);
       const data = await response.json();
       return (data.results || []).slice(0, 15).map((m: any) => ({

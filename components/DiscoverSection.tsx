@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SlidersHorizontal, Loader2 } from 'lucide-react';
+import { SlidersHorizontal, Loader2, Sparkles } from 'lucide-react';
 import { Movie, InteractionType, DiscoveryFilters } from '../types';
 import { MovieService } from '../services/movieService';
 import MovieCard from './MovieCard';
@@ -35,6 +35,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       setCurrentIndex(0);
       setNextPage(1);
     } else {
+      if (isFetchingMore) return;
       setIsFetchingMore(true);
     }
 
@@ -53,7 +54,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       setIsLoading(false);
       setIsFetchingMore(false);
     }
-  }, [nextPage, userId, filters]);
+  }, [nextPage, userId, filters, isFetchingMore]);
 
   useEffect(() => {
     loadMovies(true);
@@ -66,8 +67,11 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   };
 
   useEffect(() => {
-    if (!isLoading && !isFetchingMore && queue.length > 0 && (queue.length - currentIndex) < 5) {
-      loadMovies(false);
+    if (!isLoading && !isFetchingMore && queue.length > 0) {
+      const itemsLeft = queue.length - currentIndex;
+      if (itemsLeft < 10) {
+        loadMovies(false);
+      }
     }
   }, [currentIndex, queue.length, isLoading, isFetchingMore, loadMovies]);
 
@@ -102,14 +106,34 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     setCurrentIndex(prev => prev + 1);
   };
 
-  if (isLoading) {
+  if (isLoading && queue.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8">
-        <div className="relative w-24 h-24">
-          <div className="absolute inset-0 border-4 border-[#DE3151]/10 rounded-full" />
-          <div className="absolute inset-0 border-4 border-[#DE3151] border-t-transparent rounded-full animate-spin" />
-        </div>
-        <p className="mt-8 text-[#DE3151] font-black uppercase tracking-[0.5em] text-[10px]">Improving recommendations...</p>
+      <div className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-black z-50">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center text-center"
+        >
+          <div className="relative w-32 h-32 mb-10">
+            <motion.div 
+              animate={{ rotate: 360 }}
+              transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
+              className="absolute inset-0 border-t-2 border-[#DE3151] rounded-full shadow-[0_0_20px_rgba(222,49,81,0.3)]"
+            />
+            <motion.div 
+              animate={{ rotate: -360 }}
+              transition={{ repeat: Infinity, duration: 6, ease: "linear" }}
+              className="absolute inset-2 border-b-2 border-zinc-800 rounded-full"
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Sparkles className="w-10 h-10 text-[#DE3151] animate-pulse" />
+            </div>
+          </div>
+          <h3 className="text-white font-black text-xl tracking-tighter uppercase mb-2">Assembling Your Feed</h3>
+          <p className="text-zinc-600 font-bold uppercase tracking-[0.3em] text-[9px] max-w-[200px] leading-relaxed">
+            Parsing your history and analyzing cinematic DNA...
+          </p>
+        </motion.div>
       </div>
     );
   }
@@ -135,7 +159,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
 
       <div className="relative flex-1">
         <AnimatePresence mode="popLayout">
-          {isEmpty && !isFetchingMore ? (
+          {isEmpty ? (
             <motion.div 
               key="empty"
               initial={{ opacity: 0, scale: 0.9 }} 

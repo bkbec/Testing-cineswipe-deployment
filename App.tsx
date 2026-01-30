@@ -15,9 +15,7 @@ import { APP_VERSION } from './constants';
 const App: React.FC = () => {
   const [userName, setUserName] = useState<string | null>(() => {
     const resetKey = `has_reset_to_${APP_VERSION}`;
-    const hasAlreadyReset = localStorage.getItem(resetKey);
-
-    if (!hasAlreadyReset) {
+    if (!localStorage.getItem(resetKey)) {
       localStorage.removeItem('user_name');
       localStorage.setItem(resetKey, 'true');
       return null;
@@ -25,6 +23,7 @@ const App: React.FC = () => {
     return localStorage.getItem('user_name');
   });
 
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [showStartPage, setShowStartPage] = useState(!userName);
   const [hasOnboarded, setHasOnboarded] = useState(false);
   const [activeTab, setActiveTab] = useState('discover');
@@ -41,9 +40,16 @@ const App: React.FC = () => {
 
   const refreshProfiles = async () => {
     setIsLoadingProfiles(true);
-    const data = await MovieService.getAllProfiles();
-    setProfiles(data);
-    setIsLoadingProfiles(false);
+    try {
+      const data = await MovieService.getAllProfiles();
+      setProfiles(data);
+    } catch (e) {
+      console.error("Profile fetch error", e);
+    } finally {
+      setIsLoadingProfiles(false);
+      // Only release initial load state after profiles are resolved to prevent flash
+      setTimeout(() => setIsInitialLoad(false), 800);
+    }
   };
 
   useEffect(() => {
@@ -51,13 +57,13 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (userName && userName !== '__PENDING__') {
+    if (userName && userName !== '__PENDING__' && !isLoadingProfiles) {
       const profile = profiles.find(p => p.username === userName);
       if (profile) {
         setHasOnboarded(true);
         refreshData();
       } else {
-        if (!isLoadingProfiles) setHasOnboarded(false);
+        setHasOnboarded(false);
       }
     }
   }, [userName, profiles, isLoadingProfiles]);
@@ -66,34 +72,20 @@ const App: React.FC = () => {
     if (!userName || userName === '__PENDING__') return;
     try {
       const interactions = await MovieService.getInteractions(userName);
+      const likedIds = interactions.filter(i => i.type === InteractionType.YES).map(i => String(i.movieId));
+      const watchedIds = interactions.filter(i => i.type === InteractionType.WATCHED).map(i => String(i.movieId));
       
-      const likedIds = (interactions || [])
-        .filter(i => i.type === InteractionType.YES)
-        .map(i => String(i.movieId));
+      const [liked, watched, shared] = await Promise.all([
+        MovieService.getMoviesByIds(likedIds),
+        MovieService.getMoviesByIds(watchedIds),
+        MovieService.getSharedMatches(userName)
+      ]);
       
-      const watchedIds = (interactions || [])
-        .filter(i => i.type === InteractionType.WATCHED)
-        .map(i => String(i.movieId));
-      
-      if (likedIds.length > 0) {
-        const movies = await MovieService.getMoviesByIds(likedIds);
-        setLikedMovies(movies || []);
-      } else {
-        setLikedMovies([]);
-      }
-
-      if (watchedIds.length > 0) {
-        const movies = await MovieService.getMoviesByIds(watchedIds);
-        setWatchedMovies(movies || []);
-      } else {
-        setWatchedMovies([]);
-      }
-
-      const shared = await MovieService.getSharedMatches(userName);
-      setSharedMovies(shared);
-
+      setLikedMovies(liked || []);
+      setWatchedMovies(watched || []);
+      setSharedMovies(shared || []);
     } catch (e) {
-      console.error("Refresh data failed", e);
+      console.error("Data refresh failed", e);
     }
   };
 
@@ -103,42 +95,16 @@ const App: React.FC = () => {
     setUserName(name);
   };
 
-  const handleDeleteProfile = async (profile: UserProfile) => {
-    setProfileToDelete(profile);
-  };
-
-  const confirmDelete = async () => {
-    if (!profileToDelete) return;
-    const success = await MovieService.deleteProfile(profileToDelete.username);
-    if (success) {
-      if (userName === profileToDelete.username) {
-        handleLogout();
-      }
-      await refreshProfiles();
-      setProfileToDelete(null);
-    } else {
-      alert("Failed to delete profile.");
-    }
-  };
-
-  const handleAddNewProfile = () => {
-    setUserName('__PENDING__');
-    setHasOnboarded(false);
-  };
-
   const handleLogout = () => {
     localStorage.removeItem('user_name');
     setUserName(null);
     setHasOnboarded(false);
     setShowStartPage(true);
     setActiveTab('discover');
-    setIsManagingProfiles(false);
   };
 
   const handleOnboardingComplete = async (onboardingData: OnboardingData) => {
-    const rawUsername = onboardingData.name.toLowerCase().replace(/\s+/g, '_');
-    const finalUsername = rawUsername; 
-    
+    const finalUsername = onboardingData.name.toLowerCase().replace(/\s+/g, '_');
     let avatarUrl = onboardingData.photoPreview || `https://api.dicebear.com/7.x/avataaars/svg?seed=${finalUsername}`;
     
     if (onboardingData.photoFile) {
@@ -164,347 +130,91 @@ const App: React.FC = () => {
             posterUrl: movie.posterUrl,
             type: InteractionType.WATCHED,
             timestamp: Date.now(),
-            notes: 'Selected as Masterpiece during onboarding'
           });
         }
       }
-
-      if (onboardingData.letterboxdUsername) {
-        await MovieService.syncLetterboxdHistory(onboardingData.letterboxdUsername, finalUsername);
-      }
-
       localStorage.setItem('user_name', finalUsername);
       setUserName(finalUsername);
       await refreshProfiles();
       setHasOnboarded(true);
-      refreshData();
-    } else {
-      alert("Failed to create profile. Please try again.");
     }
   };
+
+  const currentProfile = profiles.find(p => p.username === userName);
+
+  if (isInitialLoad) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center z-[1000]">
+        <Logo className="w-24 h-24 mb-10 animate-pulse drop-shadow-[0_0_20px_rgba(222,49,81,0.5)]" />
+        <div className="w-48 h-1 bg-zinc-900 rounded-full overflow-hidden">
+          <motion.div initial={{ x: '-100%' }} animate={{ x: '100%' }} transition={{ repeat: Infinity, duration: 1.5 }} className="w-1/2 h-full bg-[#DE3151]" />
+        </div>
+      </div>
+    );
+  }
+
+  if (showStartPage && !userName) {
+    return (
+      <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8">
+        <Logo className="w-32 h-32 mb-10 drop-shadow-[0_0_30px_rgba(222,49,81,0.6)]" />
+        <h1 className="text-6xl font-black text-white tracking-tighter uppercase mb-12 italic">CineMatch</h1>
+        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setShowStartPage(false)} className="px-12 py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-xs flex items-center gap-4">
+          <Play className="w-4 h-4 fill-white" />
+          Enter Theater
+        </motion.button>
+      </div>
+    );
+  }
+
+  if (!userName || userName === '__PENDING__') {
+    if (userName === '__PENDING__') return <Onboarding onComplete={handleOnboardingComplete} />;
+    return (
+      <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center p-8">
+        <h1 className="text-4xl font-black text-white uppercase mb-12">Who's Watching?</h1>
+        <div className="flex flex-wrap justify-center gap-8 max-w-2xl">
+          {profiles.map(p => (
+            <button key={p.username} onClick={() => handleProfileSelect(p.username)} className="flex flex-col items-center gap-4 w-32">
+              <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800 overflow-hidden hover:border-[#DE3151] transition-all">
+                {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : <span className="text-2xl font-black">{p.full_name[0]}</span>}
+              </div>
+              <span className="font-black text-[10px] uppercase tracking-widest text-zinc-500">{p.full_name}</span>
+            </button>
+          ))}
+          <button onClick={() => setUserName('__PENDING__')} className="flex flex-col items-center gap-4 w-32">
+            <div className="w-full aspect-square rounded-[2.5rem] border-2 border-dashed border-zinc-800 flex items-center justify-center hover:border-[#DE3151]"><Plus className="w-10 h-10 text-zinc-700" /></div>
+            <span className="font-black text-[10px] uppercase text-zinc-700">Add Profile</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasOnboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 4000);
   };
 
-  const handleDiscoverInteraction = useCallback(async (movieId: string, type: InteractionType) => {
-    if (type === InteractionType.YES && userName) {
-      const isMatch = await MovieService.checkForMatches(movieId, userName);
-      if (isMatch) {
-        const movies = await MovieService.getMoviesByIds([movieId]);
-        if (movies && movies.length > 0) {
-          setMatchMovie(movies[0]);
-          const shared = await MovieService.getSharedMatches(userName);
-          setSharedMovies(shared);
-        }
-      }
-    }
-    refreshData();
-  }, [userName]);
-
-  const currentProfile = profiles.find(p => p.username === userName);
-
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2);
-  };
-
-  if (showStartPage && !userName) {
-    return (
-      <div className="fixed inset-0 z-[300] bg-black flex flex-col items-center justify-center p-8 overflow-hidden">
-        <div className="absolute top-[-20%] left-[-20%] w-[600px] h-[600px] bg-[#DE3151]/10 blur-[150px] pointer-events-none rounded-full animate-pulse" />
-        <div className="absolute bottom-[-20%] right-[-20%] w-[600px] h-[600px] bg-white/5 blur-[150px] pointer-events-none rounded-full" />
-        
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-center relative z-10 flex flex-col items-center"
-        >
-          <Logo className="w-32 h-32 mx-auto mb-10 drop-shadow-[0_0_30px_rgba(222,49,81,0.6)]" />
-          <h1 className="text-6xl font-black text-white tracking-tighter uppercase mb-2 italic">CineMatch</h1>
-          <p className="text-zinc-500 font-bold uppercase tracking-[0.4em] text-[10px] mb-12">Personalized Discovery</p>
-          
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => setShowStartPage(false)}
-            className="group relative px-12 py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-[0.2em] text-xs shadow-[0_0_40px_rgba(222,49,81,0.3)] flex items-center gap-4 transition-all hover:brightness-110"
-          >
-            <Play className="w-4 h-4 fill-white" />
-            Enter Theater
-          </motion.button>
-        </motion.div>
-
-        <div className="absolute bottom-12 left-0 right-0 text-center">
-          <span className="text-[9px] font-black text-white uppercase tracking-[0.5em] opacity-50">Build Version {APP_VERSION}</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!userName || userName === '__PENDING__') {
-    if (userName === '__PENDING__') {
-       return <Onboarding onComplete={handleOnboardingComplete} />;
-    }
-
-    return (
-      <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center p-8 overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#DE3151]/20 blur-[150px] pointer-events-none rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-white/5 blur-[150px] pointer-events-none rounded-full" />
-        
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-16 relative z-10"
-        >
-          <Logo className="w-16 h-16 mx-auto mb-6 drop-shadow-[0_0_20px_rgba(222,49,81,0.5)]" />
-          <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-2">Welcome Back</h1>
-          <p className="text-zinc-500 font-medium">Who's picking the movie tonight?</p>
-        </motion.div>
-
-        <div className="flex flex-wrap justify-center gap-8 w-full max-w-2xl relative z-10 px-4">
-          {isLoadingProfiles ? (
-            <Loader2 className="w-8 h-8 animate-spin text-[#DE3151]" />
-          ) : (
-            profiles.map(profile => (
-              <motion.div
-                key={profile.username}
-                layout
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="relative group w-32"
-              >
-                <motion.button
-                  whileHover={!isManagingProfiles ? { scale: 1.05, y: -5 } : {}}
-                  whileTap={!isManagingProfiles ? { scale: 0.95 } : {}}
-                  onClick={() => handleProfileSelect(profile.username)}
-                  className={`group flex flex-col items-center gap-4 w-full transition-all ${isManagingProfiles ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
-                >
-                  <div className={`w-full aspect-square rounded-[2.5rem] bg-zinc-900 border-2 border-zinc-800 flex items-center justify-center overflow-hidden relative shadow-2xl ${!isManagingProfiles ? 'group-hover:border-[#DE3151]' : ''}`}>
-                    {profile.avatar_url ? (
-                      <img src={profile.avatar_url} className="w-full h-full object-cover" alt={profile.full_name} />
-                    ) : (
-                      <span className="text-2xl font-black text-white">{getInitials(profile.full_name)}</span>
-                    )}
-                    <div className={`absolute inset-0 bg-black/40 transition-colors ${!isManagingProfiles ? 'group-hover:bg-transparent' : ''}`} />
-                  </div>
-                  <span className="font-black text-xs uppercase tracking-[0.3em] text-zinc-500 transition-colors truncate w-full text-center group-hover:text-white">{profile.full_name}</span>
-                </motion.button>
-                
-                {isManagingProfiles && (
-                  <motion.button
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleDeleteProfile(profile)}
-                    className="absolute -top-2 -right-2 w-10 h-10 bg-red-600 text-white rounded-2xl flex items-center justify-center shadow-2xl z-20 border-2 border-black"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </motion.button>
-                )}
-              </motion.div>
-            ))
-          )}
-
-          <div className="flex flex-col items-center gap-8">
-            <motion.button
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleAddNewProfile}
-              className="group flex flex-col items-center gap-4 w-32"
-            >
-              <div className="w-full aspect-square rounded-[2.5rem] bg-zinc-950 border-2 border-dashed border-zinc-800 flex items-center justify-center group-hover:border-[#DE3151] group-hover:bg-[#DE3151]/5 transition-all shadow-2xl relative">
-                <Plus className="w-10 h-10 text-zinc-700 group-hover:text-[#DE3151]" />
-              </div>
-              <span className="font-black text-[10px] uppercase tracking-[0.2em] text-zinc-700 group-hover:text-white transition-colors">Add Profile</span>
-            </motion.button>
-
-            <motion.button
-              onClick={() => setIsManagingProfiles(!isManagingProfiles)}
-              className={`flex items-center gap-2 px-6 py-3 rounded-2xl border transition-all text-[10px] font-black uppercase tracking-widest ${isManagingProfiles ? 'bg-[#DE3151] border-[#DE3151] text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white'}`}
-            >
-              <Settings2 className="w-4 h-4" />
-              {isManagingProfiles ? 'Done Managing' : 'Manage Profiles'}
-            </motion.button>
-          </div>
-        </div>
-
-        {/* Delete Confirmation Modal */}
-        <AnimatePresence>
-          {profileToDelete && (
-            <div className="fixed inset-0 z-[500] flex items-center justify-center p-6">
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setProfileToDelete(null)} />
-              <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="relative w-full max-sm:p-6 max-w-sm bg-zinc-900 border border-white/10 rounded-[2.5rem] p-8 text-center shadow-2xl">
-                <div className="w-20 h-20 bg-red-600/10 text-red-600 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                  <Trash2 className="w-10 h-10" />
-                </div>
-                <h3 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Delete Profile?</h3>
-                <p className="text-zinc-500 text-sm mb-8 leading-relaxed">This will permanently remove <span className="text-white font-bold">{profileToDelete.full_name}</span> and all their movie preferences. This cannot be undone.</p>
-                <div className="flex flex-col gap-3">
-                  <button onClick={confirmDelete} className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl">Confirm Delete</button>
-                  <button onClick={() => setProfileToDelete(null)} className="w-full py-4 bg-zinc-800 text-zinc-400 rounded-2xl font-black uppercase tracking-widest text-xs">Cancel</button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
-  }
-
-  if (!hasOnboarded) {
-    return <Onboarding onComplete={handleOnboardingComplete} />;
-  }
-
-  const renderListView = (title: string, movies: Movie[], emptyMsg: string) => {
-    return (
-      <div className="flex-1 flex flex-col p-6 overflow-y-auto no-scrollbar pb-32">
-        <div className="mb-8">
-          <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.3em] mb-0.5 block">Collection</span>
-          <h2 className="text-3xl font-black text-white tracking-tighter uppercase">{title}</h2>
-        </div>
-        
-        {movies.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center space-y-6">
-            <div className="w-20 h-20 bg-zinc-900 rounded-[2rem] flex items-center justify-center text-4xl shadow-2xl mb-8">🍿</div>
-            <p className="text-zinc-500 font-medium max-w-[200px] leading-relaxed">{emptyMsg}</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            {movies.map(movie => (
-              <div key={movie.id} className="relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-900 border border-white/5 shadow-xl group">
-                <img src={movie.posterUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt={movie.title} />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex flex-col justify-end p-4">
-                  <span className="text-[10px] font-black text-white truncate">{movie.title}</span>
-                  <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-widest">{movie.releaseYear}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
-    <div className="h-[100vh] w-full flex flex-col bg-black overflow-hidden relative selection:bg-[#DE3151]/30 text-white">
-      <header className="flex items-center justify-between px-6 h-20 flex-shrink-0 relative z-50 mt-1">
-        <div className="flex items-center gap-3 group cursor-pointer" onClick={() => { setActiveTab('discover'); setIsViewingAllWatched(false); }}>
-          <Logo className="w-10 h-10 transition-transform group-hover:scale-110 drop-shadow-[0_0_10px_rgba(222,49,81,0.3)]" />
-          <h1 className="font-black text-xl tracking-tighter uppercase leading-none">CineMatch</h1>
+    <div className="h-[100vh] w-full flex flex-col bg-black overflow-hidden relative text-white">
+      <header className="flex items-center justify-between px-6 h-20 flex-shrink-0 relative z-50">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('discover'); setIsViewingAllWatched(false); }}>
+          <Logo className="w-10 h-10 drop-shadow-[0_0_10px_rgba(222,49,81,0.3)]" />
+          <h1 className="font-black text-xl tracking-tighter uppercase">CineMatch</h1>
         </div>
-        
-        <div className="flex items-center gap-4">
-           <div className="relative group">
-              <div 
-                onClick={() => setActiveTab('profile')}
-                className="w-10 h-10 rounded-2xl bg-zinc-900 border border-white/10 flex items-center justify-center overflow-hidden cursor-pointer hover:border-[#DE3151] transition-all"
-              >
-                {currentProfile?.avatar_url ? (
-                  <img 
-                    src={currentProfile.avatar_url} 
-                    className="w-full h-full object-cover" 
-                    alt="Profile" 
-                  />
-                ) : (
-                  <span className="text-[10px] font-black text-white">
-                    {currentProfile ? getInitials(currentProfile.full_name) : '??'}
-                  </span>
-                )}
-              </div>
-           </div>
-
-           <button 
-             onClick={handleLogout}
-             className="w-10 h-10 rounded-2xl bg-zinc-900 border border-white/5 flex items-center justify-center text-zinc-500 hover:text-[#DE3151] transition-all active:scale-95 hover:bg-[#DE3151]/10"
-             title="Logout"
-           >
-             <LogOut className="w-4 h-4" />
-           </button>
-        </div>
+        <button onClick={handleLogout} className="w-10 h-10 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-500 hover:text-[#DE3151]"><LogOut className="w-4 h-4" /></button>
       </header>
-
       <main className="flex-1 flex flex-col relative overflow-hidden">
-        {activeTab === 'discover' && (
-          <DiscoverSection userId={userName} onInteraction={handleDiscoverInteraction} />
-        )}
-        {activeTab === 'likes' && renderListView('My Favorites', likedMovies, 'Films you marked with a heart.')}
-        {activeTab === 'shared' && renderListView('Shared Likes', sharedMovies, 'Films you and your partner both want to see!')}
-        {activeTab === 'profile' && !isViewingAllWatched && (
-          <ProfileSection 
-            profile={currentProfile}
-            likedMovies={likedMovies} 
-            watchedMovies={watchedMovies} 
-            onViewAllWatched={() => setIsViewingAllWatched(true)}
-            onProfileUpdate={refreshProfiles}
-            onShowToast={showToast}
-            onAccountDelete={() => {
-              handleLogout();
-              refreshProfiles();
-            }}
-          />
-        )}
-        {activeTab === 'profile' && isViewingAllWatched && (
-          <WatchedHistoryView 
-            userId={userName}
-            movies={watchedMovies} 
-            onBack={() => setIsViewingAllWatched(false)}
-            onUpdate={() => refreshData()}
-          />
-        )}
+        {activeTab === 'discover' && <DiscoverSection userId={userName} onInteraction={() => refreshData()} />}
+        {activeTab === 'likes' && <div className="p-6 h-full overflow-y-auto no-scrollbar"><h2 className="text-3xl font-black uppercase mb-8">Favorites</h2><div className="grid grid-cols-2 gap-4">{likedMovies.map(m => <div key={m.id} className="aspect-[2/3] rounded-2xl overflow-hidden"><img src={m.posterUrl} className="w-full h-full object-cover" /></div>)}</div></div>}
+        {activeTab === 'shared' && <div className="p-6 h-full overflow-y-auto no-scrollbar"><h2 className="text-3xl font-black uppercase mb-8">Shared</h2><div className="grid grid-cols-2 gap-4">{sharedMovies.map(m => <div key={m.id} className="aspect-[2/3] rounded-2xl overflow-hidden"><img src={m.posterUrl} className="w-full h-full object-cover" /></div>)}</div></div>}
+        {activeTab === 'profile' && !isViewingAllWatched && <ProfileSection profile={currentProfile} likedMovies={likedMovies} watchedMovies={watchedMovies} onViewAllWatched={() => setIsViewingAllWatched(true)} onProfileUpdate={refreshProfiles} onShowToast={showToast} />}
+        {activeTab === 'profile' && isViewingAllWatched && <WatchedHistoryView userId={userName} movies={watchedMovies} onBack={() => setIsViewingAllWatched(false)} onUpdate={refreshData} />}
       </main>
-
-      <BottomNav activeTab={activeTab} onTabChange={(tab) => { 
-        setActiveTab(tab); 
-        setIsViewingAllWatched(false);
-        refreshData(); 
-      }} />
-
-      <AnimatePresence>
-        {matchMovie && (
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-[#DE3151]/20 backdrop-blur-xl" onClick={() => setMatchMovie(null)} />
-            <motion.div initial={{ scale: 0.8, opacity: 0, y: 50 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.8, opacity: 0, y: 50 }} className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 w-full max-sm:p-6 max-w-sm text-center shadow-[0_0_100px_rgba(222,49,81,0.5)]">
-              <div className="w-20 h-20 bg-[#DE3151] rounded-3xl mx-auto mb-6 flex items-center justify-center rotate-12 shadow-2xl">
-                <Sparkles className="w-10 h-10 text-white animate-pulse" />
-              </div>
-              <h2 className="text-4xl font-black text-white tracking-tighter uppercase mb-2 italic">Match!</h2>
-              <p className="text-zinc-400 font-medium mb-8 leading-relaxed">Someone else wants to watch <span className="text-white font-bold">{matchMovie.title}</span> too! 🍿</p>
-              <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden mb-8 border border-white/10">
-                <img src={matchMovie.posterUrl} className="w-full h-full object-cover" />
-              </div>
-              <button onClick={() => setMatchMovie(null)} className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl active:scale-95 transition-all">Amazing!</button>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {toastMsg && (
-          <motion.div 
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] w-full max-w-xs px-4"
-          >
-            <div className="bg-[#DE3151] text-white px-6 py-4 rounded-2xl shadow-2xl border border-white/20 flex items-center gap-4">
-               <div className="bg-white/20 rounded-full p-2">
-                 <Bell className="w-4 h-4" />
-               </div>
-               <span className="text-xs font-black uppercase tracking-widest leading-relaxed flex-1">{toastMsg}</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-[#DE3151]/10 blur-[180px] pointer-events-none rounded-full" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-white/5 blur-[180px] pointer-events-none rounded-full" />
+      <BottomNav activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); setIsViewingAllWatched(false); refreshData(); }} />
+      {matchMovie && <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6"><div className="absolute inset-0 bg-[#DE3151]/20 backdrop-blur-xl" onClick={() => setMatchMovie(null)} /><div className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 text-center max-w-sm"><Sparkles className="w-12 h-12 text-[#DE3151] mx-auto mb-6" /><h2 className="text-4xl font-black uppercase mb-4 italic">Match!</h2><div className="w-full aspect-[2/3] rounded-2xl overflow-hidden mb-8"><img src={matchMovie.posterUrl} /></div><button onClick={() => setMatchMovie(null)} className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase">Amazing!</button></div></div>}
+      <AnimatePresence>{toastMsg && <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-[#DE3151] text-white px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest">{toastMsg}</motion.div>}</AnimatePresence>
     </div>
   );
 };

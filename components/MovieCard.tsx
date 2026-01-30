@@ -68,96 +68,91 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
           onPointerDown={(e) => isFlipped && e.stopPropagation()}
           onTap={handleTap}
         >
-          {/* Poster Section (The "Trailer" trigger area) */}
-          <div className="relative h-[55%] w-full overflow-hidden bg-zinc-800 shrink-0">
+          {/* Poster Section */}
+          <div className="relative h-[58%] w-full overflow-hidden bg-zinc-800 shrink-0">
             <img 
               src={movie.posterUrl} 
               alt={movie.title} 
               className="w-full h-full object-cover transition-transform duration-700 pointer-events-none" 
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/60 to-transparent pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-950/20 to-transparent pointer-events-none" />
             
             <button 
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onWatchTrailer(); }}
               className="absolute inset-0 flex items-center justify-center group"
             >
-              <div className="w-20 h-20 bg-white/10 backdrop-blur-3xl border border-white/20 rounded-full flex items-center justify-center group-hover:scale-110 group-hover:bg-white/20 transition-all duration-500">
-                <Play className="w-8 h-8 text-white fill-white ml-1.5" />
+              <div className="w-16 h-16 bg-white/10 backdrop-blur-2xl border border-white/20 rounded-full flex items-center justify-center group-hover:scale-110 group-hover:bg-white/20 transition-all duration-500">
+                <Play className="w-6 h-6 text-white fill-white ml-1" />
               </div>
             </button>
             
-            <div className="absolute bottom-6 left-8 right-8 pointer-events-none">
-               <span className="text-[10px] font-black text-[#DE3151] uppercase tracking-[0.4em] mb-1 block">{movie.releaseYear}</span>
-               <h2 className="text-3xl font-black leading-none text-white tracking-tighter drop-shadow-lg">{movie.title}</h2>
+            <div className="absolute bottom-5 left-7 right-7 pointer-events-none">
+               <span className="text-[9px] font-black text-[#DE3151] uppercase tracking-[0.4em] mb-1 block">{movie.releaseYear}</span>
+               <h2 className="text-2xl font-black leading-tight text-white tracking-tighter drop-shadow-lg">{movie.title}</h2>
             </div>
           </div>
 
           {/* Info Section */}
-          <div className="px-7 py-6 flex-1 flex flex-col min-h-0 bg-zinc-950/20 pointer-events-none">
-            {/* Ratings Bar */}
-            <div className="flex items-center gap-3 mb-4 shrink-0">
-               <div className="flex items-center gap-2 bg-zinc-900 border border-white/10 px-3 py-1.5 rounded-xl shadow-lg">
-                  <img 
-                    src={rtIcon} 
-                    className="w-4 h-4 object-contain" 
-                    alt="RT Critic" 
-                  />
-                  <span className="text-xs font-black text-white">{movie.ratings.rottenTomatoesCritic}%</span>
+          <div className="px-7 py-5 flex-1 flex flex-col min-h-0 bg-zinc-950/20 pointer-events-none">
+            {/* Ratings Bar with Primary Genre Tag */}
+            <div className="flex items-center gap-2 mb-3 shrink-0">
+               {movie.genres.length > 0 && (
+                 <span className="px-2 py-1 bg-zinc-800 border border-white/5 rounded-lg text-[8px] font-black text-[#DE3151] uppercase tracking-wider mr-1">
+                   {movie.genres[0]}
+                 </span>
+               )}
+               <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-white/5 px-2 py-1 rounded-lg shadow-lg">
+                  <img src={rtIcon} className="w-3.5 h-3.5 object-contain" alt="RT Critic" />
+                  <span className="text-[10px] font-black text-white">{movie.ratings.rottenTomatoesCritic}%</span>
                </div>
-               <div className="flex items-center gap-2 bg-zinc-900 border border-white/10 px-3 py-1.5 rounded-xl shadow-lg">
-                  <span className="text-base leading-none">🍿</span>
-                  <span className="text-xs font-black text-white">{movie.ratings.rottenTomatoesAudience}%</span>
+               <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-white/5 px-2 py-1 rounded-lg shadow-lg">
+                  <span className="text-xs leading-none">🍿</span>
+                  <span className="text-[10px] font-black text-white">{movie.ratings.rottenTomatoesAudience}%</span>
                </div>
-               <div className="flex items-center gap-2 bg-zinc-900 border border-white/10 px-3 py-1.5 rounded-xl shadow-lg ml-auto">
-                 <span className="text-xs font-black text-[#00E054]">{movie.ratings.letterboxd}</span>
-                 <Star className="w-3 h-3 fill-[#00E054] text-[#00E054]" />
+               <div className="flex items-center gap-1.5 bg-zinc-900/80 border border-white/5 px-2 py-1 rounded-lg shadow-lg ml-auto">
+                 <span className="text-[10px] font-black text-[#00E054]">{movie.ratings.letterboxd}</span>
+                 <Star className="w-2.5 h-2.5 fill-[#00E054] text-[#00E054]" />
                </div>
             </div>
 
             <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-              <div className="flex justify-between items-start mb-3">
-                <p className="text-zinc-400 text-sm font-medium line-clamp-2 leading-relaxed flex-1 mr-3">
+              <div className="flex justify-between items-start">
+                <p className="text-zinc-400 text-xs font-medium line-clamp-3 leading-relaxed flex-1 mr-3">
                   {movie.description}
                 </p>
                 <button 
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => { e.stopPropagation(); setIsFlipped(true); }}
-                  className="w-9 h-9 bg-zinc-900 rounded-full border border-white/5 flex items-center justify-center text-zinc-400 hover:text-white transition-colors shrink-0 pointer-events-auto"
+                  className="w-8 h-8 bg-zinc-900 rounded-full border border-white/5 flex items-center justify-center text-zinc-500 hover:text-white transition-colors shrink-0 pointer-events-auto"
                 >
-                  <Info className="w-4.5 h-4.5" />
+                  <Info className="w-4 h-4" />
                 </button>
-              </div>
-              
-              <div className="flex flex-wrap gap-1.5 mb-2 shrink-0 overflow-hidden h-6">
-                {movie.genres.slice(0, 3).map(g => (
-                  <span key={g} className="px-2.5 py-0.5 bg-zinc-900 border border-white/5 rounded-lg text-[9px] font-black text-zinc-500 uppercase tracking-wider">{g}</span>
-                ))}
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex justify-between items-center gap-3 mt-4 shrink-0 pb-2 pointer-events-auto">
+            {/* Slimmer Action Buttons */}
+            <div className="flex justify-between items-center gap-2.5 mt-3 shrink-0 pb-1 pointer-events-auto">
                <button 
                  onPointerDown={(e) => e.stopPropagation()}
                  onClick={(e) => { e.stopPropagation(); onAction(InteractionType.NO); }}
-                 className="flex-1 h-14 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-all active:scale-95 group"
+                 className="flex-1 h-11 bg-zinc-900/80 border border-zinc-800 rounded-xl flex items-center justify-center text-red-500 hover:bg-red-500/10 transition-all active:scale-95 group"
                >
-                 <X className="w-5 h-5" />
+                 <X className="w-4 h-4" />
                </button>
                <button 
                  onPointerDown={(e) => e.stopPropagation()}
                  onClick={(e) => { e.stopPropagation(); onAction(InteractionType.WATCHED); }}
-                 className="flex-1 h-14 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-center text-sky-400 hover:bg-sky-400/10 transition-all active:scale-95 group"
+                 className="flex-1 h-11 bg-zinc-900/80 border border-zinc-800 rounded-xl flex items-center justify-center text-sky-400 hover:bg-sky-400/10 transition-all active:scale-95 group"
                >
-                 <Eye className="w-5 h-5" />
+                 <Eye className="w-4 h-4" />
                </button>
                <button 
                  onPointerDown={(e) => e.stopPropagation()}
                  onClick={(e) => { e.stopPropagation(); onAction(InteractionType.YES); }}
-                 className="flex-[1.5] h-14 bg-[#DE3151] rounded-2xl flex items-center justify-center text-white font-black uppercase tracking-widest text-xs hover:brightness-110 transition-all active:scale-95 group shadow-xl shadow-[#DE3151]/20"
+                 className="flex-[1.5] h-11 bg-[#DE3151] rounded-xl flex items-center justify-center text-white font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all active:scale-95 group shadow-lg shadow-[#DE3151]/20"
                >
-                 <Heart className="w-4 h-4 mr-2 fill-white" />
+                 <Heart className="w-3.5 h-3.5 mr-2 fill-white" />
                  Like
                </button>
             </div>
