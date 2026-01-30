@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, SlidersHorizontal, Sparkles, X, ChevronDown } from 'lucide-react';
+import { SlidersHorizontal, Sparkles, X, ChevronDown } from 'lucide-react';
 import { DiscoveryFilters } from '../types';
 
 interface FilterDrawerProps {
@@ -55,20 +55,6 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFil
             </div>
 
             <div className="space-y-8">
-              {/* Voice Note Section */}
-              <button 
-                onPointerDown={() => alert("Listening for voice commands...")}
-                className="w-full flex items-center gap-6 p-6 bg-zinc-900/50 hover:bg-[#DE3151]/10 rounded-[2rem] border border-zinc-800 hover:border-[#DE3151]/40 transition-all group active:scale-[0.98]"
-              >
-                <div className="w-16 h-16 bg-[#DE3151] text-white rounded-2xl flex items-center justify-center shadow-lg shadow-[#DE3151]/20 group-hover:scale-110 transition-transform">
-                  <Mic className="w-8 h-8" />
-                </div>
-                <div className="text-left flex-1">
-                  <h4 className="font-black text-white text-lg">Voice AI Discovery</h4>
-                  <p className="text-xs text-zinc-500 font-medium italic">"Find me a cozy indie dramedy..."</p>
-                </div>
-              </button>
-
               {/* Manual Filters Dropdowns */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-zinc-900 p-5 rounded-[1.5rem] border border-zinc-800 flex flex-col gap-2 group hover:border-zinc-700 transition-colors">
