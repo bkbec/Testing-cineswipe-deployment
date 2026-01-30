@@ -1,7 +1,5 @@
 {
   "name": "Testing deployment of cineswipe",
   "description": "An intelligent movie discovery app for couples and individuals to find the perfect film through AI-driven personalization and swiping logic.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
+  "requestFramePermissions": []
 }
