@@ -8,19 +8,18 @@ const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee';
 
 export class MovieService {
   /**
-   * Simple validation to check if we can reach the Letterboxd feed via AllOrigins.
+   * Simple validation to check if we can reach the Letterboxd feed via CORSproxy.io.
    */
   static async validateLetterboxdUser(username: string): Promise<boolean> {
     if (!username) throw new Error("Username is required.");
     try {
       const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
       
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error("Sync failed. Check console for details.");
       
-      const data = await response.json();
-      const content = data.contents;
+      const content = await response.text();
 
       if (!content || content.includes('404') || content.includes('Page not found')) {
         throw new Error("Sync failed. Check console for details.");
@@ -34,12 +33,7 @@ export class MovieService {
   }
 
   /**
-   * Finalized Sync Logic:
-   * 1. Uses AllOrigins to bypass CORS.
-   * 2. Extracts XML from data.contents.
-   * 3. Priority extraction of tmdb:movieId.
-   * 4. Fallback to title/year search.
-   * 5. Enrichment via TMDB details.
+   * Syncs Letterboxd history using corsproxy.io and manual XML parsing.
    */
   static async syncLetterboxdHistory(
     username: string, 
@@ -49,13 +43,12 @@ export class MovieService {
     if (!username) return 0;
     try {
       const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
       
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error("Sync failed. Check console for details.");
       
-      const json = await response.json();
-      const responseText = json.contents;
+      const responseText = await response.text();
       
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(responseText, "text/xml");
@@ -67,7 +60,6 @@ export class MovieService {
 
       let count = 0;
       for (const item of items) {
-        // XML parsing with namespace support
         const tmdbId = item.getElementsByTagName("tmdb:movieId")[0]?.textContent;
         const lbMovieTitle = item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent || 
                             item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent ||
@@ -77,7 +69,6 @@ export class MovieService {
         
         let movieData: Partial<Movie> | null = null;
 
-        // Path 1: Targeted TMDB ID enrichment
         if (tmdbId) {
           try {
             const res = await fetch(`${TMDB_BASE_URL}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
@@ -90,7 +81,6 @@ export class MovieService {
           }
         } 
         
-        // Path 2: Fallback Title/Year search enrichment
         if (!movieData && lbMovieTitle) {
           try {
             const searchResults = await this.searchMovies(lbMovieTitle, lbMovieYear ? parseInt(lbMovieYear) : undefined);
@@ -193,7 +183,6 @@ export class MovieService {
         m && m.id && !swipedIds.has(m.id) && self.findIndex(t => t.id === m.id) === index
       );
 
-      // Aggressive replenishment: if filters/swipes leave us with too few films, fetch the next page immediately
       if (filtered.length < 10 && page < 30) {
         const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
         return {

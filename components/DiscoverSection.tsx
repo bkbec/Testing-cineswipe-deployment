@@ -110,29 +110,31 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-black z-50">
         <motion.div 
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center text-center"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col items-center text-center space-y-8"
         >
-          <div className="relative w-32 h-32 mb-10">
+          <div className="relative w-32 h-32">
             <motion.div 
               animate={{ rotate: 360 }}
-              transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
-              className="absolute inset-0 border-t-2 border-[#DE3151] rounded-full shadow-[0_0_20px_rgba(222,49,81,0.3)]"
+              transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
+              className="absolute inset-0 border-2 border-[#DE3151] border-t-transparent rounded-full shadow-[0_0_20px_rgba(222,49,81,0.2)]"
             />
             <motion.div 
               animate={{ rotate: -360 }}
-              transition={{ repeat: Infinity, duration: 6, ease: "linear" }}
-              className="absolute inset-2 border-b-2 border-zinc-800 rounded-full"
+              transition={{ repeat: Infinity, duration: 4, ease: "linear" }}
+              className="absolute inset-3 border-2 border-zinc-800 border-b-transparent rounded-full"
             />
             <div className="absolute inset-0 flex items-center justify-center">
-              <Sparkles className="w-10 h-10 text-[#DE3151] animate-pulse" />
+              <Sparkles className="w-8 h-8 text-[#DE3151] animate-pulse" />
             </div>
           </div>
-          <h3 className="text-white font-black text-xl tracking-tighter uppercase mb-2">Assembling Your Feed</h3>
-          <p className="text-zinc-600 font-bold uppercase tracking-[0.3em] text-[9px] max-w-[200px] leading-relaxed">
-            Parsing your history and analyzing cinematic DNA...
-          </p>
+          <div>
+            <h3 className="text-white font-black text-2xl tracking-tighter uppercase mb-2">Assembling Feed</h3>
+            <p className="text-zinc-600 font-bold uppercase tracking-[0.4em] text-[10px] max-w-[240px] leading-loose">
+              Analyzing cinematic DNA & synchronizing taste
+            </p>
+          </div>
         </motion.div>
       </div>
     );
@@ -145,13 +147,13 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     <div className="flex-1 flex flex-col w-full max-w-md mx-auto relative px-4 pb-32 pt-1">
       <div className="flex justify-between items-center mb-4 px-4">
         <div className="flex items-baseline gap-2">
-          <h2 className="text-xl font-black text-white tracking-tighter">Discover</h2>
+          <h2 className="text-xl font-black text-white tracking-tighter uppercase italic">Discover</h2>
           {isFetchingMore && <Loader2 className="w-3 h-3 text-[#DE3151] animate-spin" />}
         </div>
         <motion.button 
           whileTap={{ scale: 0.95 }}
           onClick={() => setIsFilterOpen(true)}
-          className="w-12 h-12 bg-zinc-900 border border-zinc-800 rounded-[1.2rem] flex items-center justify-center text-[#DE3151] hover:bg-zinc-800 hover:border-[#DE3151]/30 transition-all shadow-xl active:scale-95"
+          className="w-11 h-11 bg-zinc-900 border border-zinc-800 rounded-xl flex items-center justify-center text-[#DE3151] hover:bg-zinc-800 transition-all shadow-xl active:scale-95"
         >
           <SlidersHorizontal className="w-5 h-5" />
         </motion.button>
@@ -167,14 +169,14 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
               exit={{ opacity: 0 }}
               className="absolute inset-0 flex flex-col items-center justify-center text-center p-10 bg-zinc-900/40 rounded-[1.5rem] border border-dashed border-zinc-800"
             >
-              <div className="w-24 h-24 bg-zinc-900 rounded-[2rem] flex items-center justify-center text-4xl shadow-2xl mb-8">🍿</div>
+              <div className="w-20 h-20 bg-zinc-900 rounded-[1.5rem] flex items-center justify-center text-3xl shadow-2xl mb-6">🍿</div>
               <div>
-                <h2 className="text-3xl font-black text-white mb-3">Roll Credits</h2>
-                <p className="text-zinc-500 font-medium mb-10 leading-relaxed">You've reached the end of today's queue. Ready for more?</p>
+                <h2 className="text-2xl font-black text-white mb-2 uppercase">Roll Credits</h2>
+                <p className="text-zinc-500 font-medium mb-10 leading-relaxed text-sm">That's the end of today's reel. Ready for another take?</p>
               </div>
               <button 
                 onClick={() => loadMovies(true)}
-                className="w-full bg-[#DE3151] text-white py-5 rounded-2xl font-black uppercase tracking-widest text-sm shadow-2xl shadow-[#DE3151]/30 hover:brightness-110 active:scale-95 transition-all"
+                className="w-full bg-[#DE3151] text-white py-4 rounded-xl font-black uppercase tracking-widest text-xs shadow-2xl shadow-[#DE3151]/20 hover:brightness-110 active:scale-95 transition-all"
               >
                 Reload Feed
               </button>
@@ -183,7 +185,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
             currentQueue[currentIndex] && (
               <motion.div
                 key={currentQueue[currentIndex].id}
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ 
                   x: exitDirection.x, 
