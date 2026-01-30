@@ -189,6 +189,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
           Cinematic DNA
         </h4>
         <div className="grid grid-cols-1 gap-4">
+           {/* Genre Fluency Card */}
            <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl">
              <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest block mb-5">Genre Fluency</label>
              <div className="space-y-5">
@@ -204,6 +205,28 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
                  </div>
                )) : (
                  <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Swipe to reveal your data...</p>
+               )}
+             </div>
+           </div>
+
+           {/* Favourite Directors Card */}
+           <div className="bg-zinc-900/40 border border-white/5 rounded-[2rem] p-6 shadow-xl">
+             <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest block mb-5">Auteur Affinity</label>
+             <div className="space-y-4">
+               {stats.topDirectors.length > 0 ? stats.topDirectors.map((d, i) => (
+                 <div key={d.name} className="flex items-center justify-between group">
+                   <div className="flex items-center gap-3">
+                     <div className="w-8 h-8 rounded-lg bg-zinc-950 flex items-center justify-center text-[#DE3151] border border-white/5">
+                        <Clapperboard className="w-3.5 h-3.5" />
+                     </div>
+                     <span className="text-[11px] font-black text-white uppercase tracking-tight truncate max-w-[180px]">{d.name}</span>
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <span className="text-[9px] font-bold text-zinc-600 uppercase">{d.count} {d.count === 1 ? 'Film' : 'Films'}</span>
+                   </div>
+                 </div>
+               )) : (
+                 <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Directors appear as you rate...</p>
                )}
              </div>
            </div>
