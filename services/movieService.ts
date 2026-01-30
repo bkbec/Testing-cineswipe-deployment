@@ -13,10 +13,9 @@ export class MovieService {
   static async validateLetterboxdUser(username: string): Promise<boolean> {
     if (!username) throw new Error("Username is required.");
     try {
-      const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
+      const rssUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://letterboxd.com/' + username + '/rss/');
       
-      const response = await fetch(proxyUrl);
+      const response = await fetch(rssUrl);
       if (!response.ok) throw new Error("Sync failed. Check console for details.");
       
       const content = await response.text();
@@ -42,10 +41,9 @@ export class MovieService {
   ): Promise<number> {
     if (!username) return 0;
     try {
-      const rssUrl = `https://letterboxd.com/${username.trim()}/rss/`;
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rssUrl)}`;
+      const rssUrl = 'https://corsproxy.io/?' + encodeURIComponent('https://letterboxd.com/' + username + '/rss/');
       
-      const response = await fetch(proxyUrl);
+      const response = await fetch(rssUrl);
       if (!response.ok) throw new Error("Sync failed. Check console for details.");
       
       const responseText = await response.text();
@@ -54,18 +52,24 @@ export class MovieService {
       const xmlDoc = parser.parseFromString(responseText, "text/xml");
       const items = Array.from(xmlDoc.getElementsByTagName("item"));
       
+      console.log('Successfully fetched feed with', items.length, 'movies');
+      
       if (onProgress) {
         onProgress(`Found ${items.length} films. Syncing...`);
       }
 
       let count = 0;
       for (const item of items) {
+        // Specifically look for tmdb:movieId as the primary match
         const tmdbId = item.getElementsByTagName("tmdb:movieId")[0]?.textContent;
-        const lbMovieTitle = item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent || 
-                            item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent ||
+        
+        // Fallback to letterboxd:movieTitle or letterboxd:filmTitle
+        const lbMovieTitle = item.getElementsByTagName("letterboxd:movieTitle")[0]?.textContent || 
+                            item.getElementsByTagName("letterboxd:filmTitle")[0]?.textContent ||
                             item.getElementsByTagName("title")[0]?.textContent?.split(',')[0].trim();
-        const lbMovieYear = item.getElementsByTagName("letterboxd:filmYear")[0]?.textContent ||
-                           item.getElementsByTagName("letterboxd:movieYear")[0]?.textContent;
+        
+        const lbMovieYear = item.getElementsByTagName("letterboxd:movieYear")[0]?.textContent ||
+                           item.getElementsByTagName("letterboxd:filmYear")[0]?.textContent;
         
         let movieData: Partial<Movie> | null = null;
 
