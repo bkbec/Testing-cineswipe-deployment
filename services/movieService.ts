@@ -129,6 +129,7 @@ export class MovieService {
       
       let candidateMovies: Movie[] = [];
 
+      // 1. Process AI Taste Suggestions
       if (taste?.suggested_titles?.length > 0) {
         const aiMovies = await Promise.all(
           taste.suggested_titles.map(async (title: string) => {
@@ -140,6 +141,7 @@ export class MovieService {
         candidateMovies.push(...detailedAiMovies);
       }
 
+      // 2. Fetch from TMDB Discover
       let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=150&language=en-US`;
       if (taste?.genre_ids?.length > 0) discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
       if (filters?.genre) {
@@ -155,11 +157,28 @@ export class MovieService {
       const discoveredEnriched = await this.enrichMovies(discoveredRaw);
       candidateMovies.push(...discoveredEnriched);
 
-      const filtered = candidateMovies.filter((m, index, self) => 
-        m && m.id && !swipedIds.has(m.id) && self.findIndex(t => t.id === m.id) === index
-      );
+      // 3. APPLY FILTERS (Swipe history + Dedupe + QUALITY GATE)
+      const filtered = candidateMovies.filter((m, index, self) => {
+        if (!m || !m.id) return false;
+        
+        // Skip already swiped
+        if (swipedIds.has(m.id)) return false;
+        
+        // Deduplicate
+        if (self.findIndex(t => t.id === m.id) !== index) return false;
 
-      if (filtered.length < 5 && page < 20) {
+        // QUALITY FILTER: RT >= 65% OR Letterboxd >= 3.2
+        const rtScore = m.ratings.rottenTomatoesCritic;
+        const lbScore = m.ratings.letterboxd;
+        
+        const meetsRT = rtScore !== 'N/A' && Number(rtScore) >= 65;
+        const meetsLB = lbScore >= 3.2;
+
+        return meetsRT || meetsLB;
+      });
+
+      // 4. If we don't have enough movies, fetch the next page recursively
+      if (filtered.length < 5 && page < 25) {
         const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
         return {
           movies: [...filtered, ...nextBatch.movies],
