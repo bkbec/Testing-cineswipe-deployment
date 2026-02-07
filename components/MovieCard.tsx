@@ -34,7 +34,8 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
     }
   };
 
-  const rtIcon = movie.ratings.rottenTomatoesCritic >= 60 
+  const rtCritic = movie.ratings.rottenTomatoesCritic;
+  const rtIcon = (typeof rtCritic === 'number' && rtCritic >= 60) || (typeof rtCritic === 'string' && rtCritic !== 'N/A' && parseInt(rtCritic) >= 60)
     ? "https://www.rottentomatoes.com/assets/cas/images/static/icons/fresh.svg"
     : "https://www.rottentomatoes.com/assets/cas/images/static/icons/rotten.svg";
 
@@ -95,7 +96,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
           <div className="px-6 py-4 flex-1 flex flex-col min-h-0 bg-zinc-950/20 pointer-events-none">
             {/* Genre & Ratings Bar */}
             <div className="flex items-center gap-2 mb-3 shrink-0 overflow-hidden">
-               {/* Genre Tags - Prominently positioned to the left */}
+               {/* Genre Tags */}
                <div className="flex gap-1.5 shrink-0">
                   {movie.genres && movie.genres.length > 0 ? (
                     movie.genres.slice(0, 1).map((genre) => (
@@ -110,16 +111,19 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
                   )}
                </div>
                
+               {/* RT Critic Score */}
                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 px-2 py-0.5 rounded-md shadow-lg">
                   <img src={rtIcon} className="w-3 h-3 object-contain" alt="RT" />
-                  <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesCritic}%</span>
+                  <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesCritic}{movie.ratings.rottenTomatoesCritic !== 'N/A' ? '%' : ''}</span>
                </div>
                
+               {/* Fallback Score/Audience (Placeholder as N/A per requirement if not from OMDb) */}
                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 px-2 py-0.5 rounded-md shadow-lg">
                   <span className="text-[10px] leading-none">🍿</span>
-                  <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesAudience}%</span>
+                  <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesAudience}{movie.ratings.rottenTomatoesAudience !== 'N/A' ? '%' : ''}</span>
                </div>
                
+               {/* Letterboxd Rating */}
                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 px-2 py-0.5 rounded-md shadow-lg ml-auto">
                  <span className="text-[9px] font-black text-[#00E054]">{movie.ratings.letterboxd}</span>
                  <Star className="w-2.5 h-2.5 fill-[#00E054] text-[#00E054]" />

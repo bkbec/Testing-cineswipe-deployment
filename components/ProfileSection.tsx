@@ -118,9 +118,17 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
     const sortedGenres = Object.entries(genreCounts).sort(([, a], [, b]) => b - a);
     const topGenres = sortedGenres.slice(0, 4).map(([name, count]) => ({ name, count }));
     
+    // Calculate top directors based ONLY on Liked movies
     const directorCounts: Record<string, number> = {};
-    allInteracted.forEach(m => { if (m.director) directorCounts[m.director] = (directorCounts[m.director] || 0) + 1; });
-    const topDirectors = Object.entries(directorCounts).sort(([, a], [, b]) => b - a).slice(0, 3).map(([name, count]) => ({ name, count }));
+    likedMovies.forEach(m => { 
+      if (m.director) {
+        directorCounts[m.director] = (directorCounts[m.director] || 0) + 1; 
+      }
+    });
+    const topDirectors = Object.entries(directorCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }));
 
     let persona = "Movie Explorer";
     const primary = topGenres[0]?.name;
@@ -226,7 +234,7 @@ const ProfileSection: React.FC<ProfileSectionProps> = ({
                    </div>
                  </div>
                )) : (
-                 <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Directors appear as you rate...</p>
+                 <p className="text-[10px] text-zinc-600 font-bold italic text-center py-4">Like movies to see top directors...</p>
                )}
              </div>
            </div>

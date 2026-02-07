@@ -1,9 +1,9 @@
 
 export interface Ratings {
-  rottenTomatoesCritic: number;
-  rottenTomatoesAudience: number;
+  rottenTomatoesCritic: number | string;
+  rottenTomatoesAudience: number | string;
   letterboxd: number;
-  imdb: number;
+  imdb: number | string;
 }
 
 export interface Movie {
@@ -20,6 +20,7 @@ export interface Movie {
   genres: string[];
   ratings: Ratings;
   trailerUrl?: string;
+  imdbId?: string;
 }
 
 export enum InteractionType {

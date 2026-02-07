@@ -1,11 +1,12 @@
 
-import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters } from '../types';
+import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters, Ratings } from '../types';
 import { supabase } from '../lib/supabase';
 import { GoogleGenAI, Type } from "@google/genai";
 import Papa from 'papaparse';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_API_KEY = 'b43d3f66cace96b72ccc3da0a85c0cee'; 
+const OMDB_API_KEY = '7c30e383'; 
 
 const TMDB_GENRES: Record<number, string> = {
   28: 'Action', 12: 'Adventure', 16: 'Animation', 35: 'Comedy', 80: 'Crime',
@@ -32,8 +33,6 @@ export class MovieService {
             const rows = results.data as any[];
             const total = rows.length;
             let successCount = 0;
-            
-            console.log(`Successfully parsed CSV with ${total} entries.`);
             
             for (let i = 0; i < total; i++) {
               const row = rows[i];
@@ -102,6 +101,7 @@ export class MovieService {
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -142,18 +142,24 @@ export class MovieService {
 
       let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=150&language=en-US`;
       if (taste?.genre_ids?.length > 0) discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
+      if (filters?.genre) {
+        const genreId = Object.keys(TMDB_GENRES).find(key => TMDB_GENRES[Number(key)] === filters.genre);
+        if (genreId) discoverUrl += `&with_genres=${genreId}`;
+      }
       if (filters?.maxRuntime) discoverUrl += `&with_runtime.lte=${filters.maxRuntime}`;
 
       const res = await fetch(discoverUrl);
       const data = await res.json();
-      const discovered = (data.results || []).map((m: any) => this.mapTMDBToMovie(m));
-      candidateMovies.push(...discovered);
+      
+      const discoveredRaw = data.results || [];
+      const discoveredEnriched = await this.enrichMovies(discoveredRaw);
+      candidateMovies.push(...discoveredEnriched);
 
       const filtered = candidateMovies.filter((m, index, self) => 
         m && m.id && !swipedIds.has(m.id) && self.findIndex(t => t.id === m.id) === index
       );
 
-      if (filtered.length < 10 && page < 30) {
+      if (filtered.length < 5 && page < 20) {
         const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
         return {
           movies: [...filtered, ...nextBatch.movies],
@@ -164,6 +170,32 @@ export class MovieService {
       return { movies: filtered, nextPage: page + 1 };
     } catch (error) {
       return { movies: [], nextPage: page };
+    }
+  }
+
+  private static async enrichMovies(tmdbMovies: any[]): Promise<Movie[]> {
+    return Promise.all(
+      tmdbMovies.map(async (m) => {
+        try {
+          const detailRes = await fetch(`${TMDB_BASE_URL}/movie/${m.id}?api_key=${TMDB_API_KEY}&append_to_response=credits`);
+          if (!detailRes.ok) return this.mapTMDBToMovie(m);
+          const detailData = await detailRes.json();
+          const omdbRatings = detailData.imdb_id ? await this.fetchOMDbRatingsById(detailData.imdb_id) : null;
+          return this.mapTMDBToMovie(detailData, omdbRatings);
+        } catch (e) {
+          return this.mapTMDBToMovie(m);
+        }
+      })
+    );
+  }
+
+  private static async fetchOMDbRatingsById(imdbId: string): Promise<any> {
+    try {
+      const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
     }
   }
 
@@ -245,7 +277,7 @@ export class MovieService {
       poster_path: purl,
       poster_url: purl,
       timestamp: interaction.timestamp || Date.now(),
-      personal_rating: interaction.personalRating ?? null,
+      personal_rating: interaction.personal_rating ?? null,
       notes: interaction.notes ?? null
     };
   }
@@ -286,7 +318,7 @@ export class MovieService {
   static async updateInteraction(userId: string, movieId: string, updates: Partial<UserInteraction>): Promise<boolean> {
     try {
       const dbUpdates: any = {};
-      if (updates.personalRating !== undefined) dbUpdates.personal_rating = updates.personalRating;
+      if (updates.personal_rating !== undefined) dbUpdates.personal_rating = updates.personal_rating;
       if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
       if (updates.type !== undefined) {
         dbUpdates.type = updates.type;
@@ -327,7 +359,7 @@ export class MovieService {
     try {
       const response = await fetch(`${TMDB_BASE_URL}/trending/movie/week?api_key=${TMDB_API_KEY}`);
       const data = await response.json();
-      return (data.results || []).slice(0, 18).map((m: any) => ({
+      return (data.results || []).map((m: any) => ({
         id: String(m.id),
         title: m.title,
         posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster'
@@ -349,20 +381,20 @@ export class MovieService {
     try {
       const movies = await Promise.all(
         ids.map(async (id) => {
-          const res = await fetch(`${TMDB_BASE_URL}/movie/${id}?api_key=${TMDB_API_KEY}`);
+          const res = await fetch(`${TMDB_BASE_URL}/movie/${id}?api_key=${TMDB_API_KEY}&append_to_response=credits`);
           if (!res.ok) return null;
           const data = await res.json();
-          return this.mapTMDBToMovie(data);
+          const omdbRatings = data.imdb_id ? await this.fetchOMDbRatingsById(data.imdb_id) : null;
+          return this.mapTMDBToMovie(data, omdbRatings);
         })
       );
       return movies.filter((m): m is Movie => m !== null);
     } catch (e) { return []; }
   }
 
-  private static mapTMDBToMovie(m: any): Movie {
-    if (!m) return { id: '0', title: 'Unknown', description: '', posterUrl: '', backdropUrl: '', releaseYear: 0, genres: [], ratings: { rottenTomatoesCritic: 0, rottenTomatoesAudience: 0, letterboxd: 0, imdb: 0 } };
+  private static mapTMDBToMovie(m: any, omdbData?: any): Movie {
+    if (!m) return { id: '0', title: 'Unknown', description: '', posterUrl: '', backdropUrl: '', releaseYear: 0, genres: [], ratings: { rottenTomatoesCritic: 'N/A', rottenTomatoesAudience: 'N/A', letterboxd: 0, imdb: 'N/A' } };
     
-    // Discovery results return genre_ids, details return genres object array
     let genreNames: string[] = [];
     if (m.genres) {
       genreNames = m.genres.map((g: any) => g.name);
@@ -370,8 +402,21 @@ export class MovieService {
       genreNames = m.genre_ids.map((id: number) => TMDB_GENRES[id]).filter(Boolean);
     }
 
+    const director = m.credits?.crew?.find((person: any) => person.job === 'Director')?.name;
+    const cast = m.credits?.cast?.slice(0, 3).map((person: any) => person.name);
+    const runtimeHours = m.runtime ? Math.floor(m.runtime / 60) : 0;
+    const runtimeMins = m.runtime ? m.runtime % 60 : 0;
+    const runtimeStr = m.runtime ? `${runtimeHours}h ${runtimeMins}m` : undefined;
+
+    let rtScore: string | number = 'N/A';
+    if (omdbData?.Ratings) {
+      const rtRating = omdbData.Ratings.find((r: any) => r.Source === 'Rotten Tomatoes');
+      if (rtRating) rtScore = rtRating.Value.replace('%', '');
+    }
+
     return {
       id: String(m.id),
+      imdbId: m.imdb_id || omdbData?.imdbID,
       title: m.title || m.name || 'Untitled',
       description: m.overview || 'No description.',
       fullSynopsis: m.overview,
@@ -379,11 +424,14 @@ export class MovieService {
       posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster',
       backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/original${m.backdrop_path}` : '',
       genres: genreNames,
+      director,
+      cast,
+      runtime: runtimeStr,
       ratings: {
-        rottenTomatoesCritic: Math.round((m.vote_average || 0) * 10),
-        rottenTomatoesAudience: Math.round((m.vote_average || 0) * 10 + 2),
+        rottenTomatoesCritic: rtScore,
+        rottenTomatoesAudience: 'N/A', 
         letterboxd: Number(((m.vote_average || 0) / 2).toFixed(1)),
-        imdb: m.vote_average || 0
+        imdb: omdbData?.imdbRating || (m.vote_average ? Number((m.vote_average).toFixed(1)) : 'N/A')
       }
     };
   }
