@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { motion, useMotionValue, useTransform } from 'framer-motion';
-import { Play, Eye, Heart, X, RotateCcw, Info, User, Clapperboard, Clock, Star } from 'lucide-react';
+import { Play, Eye, Heart, X, RotateCcw, Info, User, Clapperboard, Clock, Star, Sparkles } from 'lucide-react';
 import { Movie, InteractionType } from '../types';
 
 interface MovieCardProps {
@@ -117,7 +117,7 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
                   <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesCritic}{movie.ratings.rottenTomatoesCritic !== 'N/A' ? '%' : ''}</span>
                </div>
                
-               {/* Fallback Score/Audience (Placeholder as N/A per requirement if not from OMDb) */}
+               {/* Fallback Score/Audience */}
                <div className="flex items-center gap-1 bg-zinc-900 border border-white/5 px-2 py-0.5 rounded-md shadow-lg">
                   <span className="text-[10px] leading-none">🍿</span>
                   <span className="text-[9px] font-black text-white">{movie.ratings.rottenTomatoesAudience}{movie.ratings.rottenTomatoesAudience !== 'N/A' ? '%' : ''}</span>
@@ -193,6 +193,18 @@ const MovieCard: React.FC<MovieCardProps> = ({ movie, onAction, isTop, onWatchTr
             </div>
 
             <div className="space-y-6 flex-1">
+              {movie.curationLogic && (
+                <div className="bg-[#DE3151]/5 border border-[#DE3151]/20 p-4 rounded-2xl">
+                  <div className="flex items-center gap-2 mb-2 text-[#DE3151]">
+                    <Sparkles className="w-3 h-3" />
+                    <span className="text-[9px] font-black uppercase tracking-widest">Cinema Muse Insight</span>
+                  </div>
+                  <p className="text-white text-[10px] font-medium leading-relaxed italic">
+                    "{movie.curationLogic}"
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="text-[8px] font-black uppercase text-zinc-600 tracking-[0.3em] mb-2 block">Synopsis</label>
                 <p className="text-zinc-400 text-xs font-medium leading-relaxed">{movie.fullSynopsis || movie.description}</p>

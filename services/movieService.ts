@@ -15,6 +15,11 @@ const TMDB_GENRES: Record<number, string> = {
   10770: 'TV Movie', 53: 'Thriller', 10752: 'War', 37: 'Western'
 };
 
+const GENRE_NAME_TO_ID: Record<string, number> = Object.entries(TMDB_GENRES).reduce((acc, [id, name]) => {
+  acc[name.toLowerCase()] = parseInt(id);
+  return acc;
+}, {} as Record<string, number>);
+
 export class MovieService {
   static async syncLetterboxdCSV(
     file: File, 
@@ -74,26 +79,42 @@ export class MovieService {
     });
   }
 
+  private static async getProfile(userId: string): Promise<any> {
+    const { data } = await supabase.from('profiles').select('*').eq('username', userId).single();
+    return data;
+  }
+
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      
+      // Fetch everything from Supabase Cloud
+      const profile = await this.getProfile(userId);
       const interactions = await this.getInteractions(userId);
       
       const likes = interactions.filter(i => i.type === InteractionType.YES).map(i => i.title);
-      const historyTitles = interactions.map(i => (i.title || '').toLowerCase());
-
-      const systemInstruction = `You are the Cinema Muse.
-      CURATION RULES:
-      1. Deliver niche, high-quality recommendations based on the specific prompt.
-      2. Avoid generic blockbusters unless explicitly asked.
-      3. NEVER suggest movies in this list (already seen/liked): ${historyTitles.slice(0, 50).join(', ')}.
-      4. Focus on artistic merit and atmospheric matching.`;
-
-      const prompt = `DIRECTION: "${filters?.naturalLanguagePrompt || 'Give me something unique'}"
-      USER TASTE: ${likes.slice(-5).join(', ')}
+      const masterpieces = interactions
+        .filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
+        .map(i => i.title);
       
-      Suggest 15 films that match the DIRECTION and USER TASTE.
-      Return JSON: { "suggested_titles": [], "genre_ids": [], "curation_note": "A short why" }`;
+      const onboardingGenres = profile?.onboarding_genres || []; 
+
+      const systemInstruction = `You are the Cinema Muse. Your "Brain" is the user's Supabase cloud data.
+      USER CLOUD PROFILE:
+      - Favorite Genres (Onboarding): ${onboardingGenres.join(', ')}
+      - Liked Movies: ${likes.slice(-10).join(', ')}
+      - Masterpieces (Rated 4-5 stars): ${masterpieces.slice(-5).join(', ')}
+      
+      CURATION RULES:
+      1. Use the USER CLOUD PROFILE as the primary guidance.
+      2. If DIRECTION is provided, blend it with the user's established tastes.
+      3. Focus on niche, artistic, or high-quality cinema.
+      4. EXCLUDE: ${likes.concat(masterpieces).join(', ')}.`;
+
+      const prompt = `DIRECTION: "${filters?.naturalLanguagePrompt || 'Give me something that matches my profile'}"
+      
+      Suggest 15 specific films. For each film, provide a "logic" field explaining why it fits based on the cloud data.
+      Return JSON: { "suggested": [{ "title": "Film Name", "logic": "Why it matches" }], "genre_ids": [] }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -104,18 +125,26 @@ export class MovieService {
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              suggested_titles: { type: Type.ARRAY, items: { type: Type.STRING } },
-              genre_ids: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-              curation_note: { type: Type.STRING }
+              suggested: { 
+                type: Type.ARRAY, 
+                items: { 
+                  type: Type.OBJECT, 
+                  properties: {
+                    title: { type: Type.STRING },
+                    logic: { type: Type.STRING }
+                  }
+                } 
+              },
+              genre_ids: { type: Type.ARRAY, items: { type: Type.INTEGER } }
             },
-            required: ["suggested_titles", "genre_ids"]
+            required: ["suggested", "genre_ids"]
           }
         }
       });
 
       return JSON.parse(response.text || '{}');
     } catch (e) {
-      console.error("Gemini Analysis Error:", e);
+      console.error("Gemini Failure:", e);
       return null;
     }
   }
@@ -128,38 +157,43 @@ export class MovieService {
       
       let movies: Movie[] = [];
       let method = CurationMethod.AI_TAILORED;
-      let note = "Cinema Muse refined your feed.";
+      let note = "Cinema Muse (Gemini 3) is curating your feed from Cloud DNA.";
 
       // 1. Attempt AI Tailoring
       const aiResult = await this.analyzeTaste(userId, filters);
       
-      if (aiResult?.suggested_titles?.length > 0) {
+      if (aiResult?.suggested?.length > 0) {
         const results = await Promise.all(
-          aiResult.suggested_titles.map(async (t: string) => {
-            const search = await this.searchMovies(t);
-            return search?.[0]?.id ? search[0].id : null;
+          aiResult.suggested.map(async (item: {title: string, logic: string}) => {
+            const search = await this.searchMovies(item.title);
+            if (search?.[0]?.id) {
+               return { id: search[0].id, logic: item.logic };
+            }
+            return null;
           })
         );
-        const validIds = results.filter((id): id is string => !!id);
-        const enriched = await this.getMoviesByIds(validIds);
-        movies.push(...enriched);
-        note = aiResult.curation_note || note;
+        const validItems = results.filter((item): item is {id: string, logic: string} => !!item);
+        const enriched = await this.getMoviesByIds(validItems.map(v => v.id));
+        
+        movies = enriched.map(m => {
+          const matchingItem = validItems.find(vi => vi.id === m.id);
+          if (matchingItem) {
+            return { ...m, curationLogic: matchingItem.logic };
+          }
+          return m;
+        });
       }
 
-      // 2. Smart Fallback if AI results are thin or failed
+      // 2. Smart Fallback: Use profile data from Supabase directly if AI is down
       if (movies.length < 5) {
         method = CurationMethod.SMART_FALLBACK;
-        note = "AI direction failed. Using your Taste DNA for fallback curation.";
+        const profile = await this.getProfile(userId);
+        const topGenreNames = profile?.onboarding_genres || ['Drama', 'Sci-Fi'];
+        const genreIds = topGenreNames.map((n: string) => GENRE_NAME_TO_ID[n.toLowerCase()]).filter(Boolean);
         
-        // Find most liked genres
-        const genreCounts: Record<number, number> = {};
-        interactions.filter(i => i.type === InteractionType.YES).forEach(i => {
-           // We'd need to fetch genre for each like, but we can shortcut using AI's suggested genre_ids if available
-        });
-
-        const fallbackGenreIds = aiResult?.genre_ids?.length > 0 ? aiResult.genre_ids : [18, 28]; // Drama/Action default
+        note = `Gemini failed. Using Cloud Fallback: Curating via ${topGenreNames.join('/')} Supabase DNA.`;
         
-        let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&with_genres=${fallbackGenreIds.join('|')}`;
+        let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&with_genres=${genreIds.join('|')}`;
         const res = await fetch(discoverUrl);
         const data = await res.json();
         const enriched = await this.enrichMovies(data.results || []);
@@ -178,7 +212,6 @@ export class MovieService {
         return (lb >= 3.0 || (rt !== 'N/A' && Number(rt) >= 60));
       });
 
-      // Avoid infinite recursion on Vercel: If filtered is empty, return whatever we have but mark it
       if (filtered.length === 0 && page < 3) {
         return this.getDiscoverQueue(userId, page + 1, filters);
       }
@@ -187,11 +220,11 @@ export class MovieService {
         movies: filtered, 
         nextPage: page + 1, 
         method, 
-        note: filters?.naturalLanguagePrompt ? `AI curation applied for: "${filters.naturalLanguagePrompt}"` : note 
+        note: filters?.naturalLanguagePrompt ? `Gemini 3 Curating: "${filters.naturalLanguagePrompt}"` : note 
       };
     } catch (e) {
       console.error("Discovery Engine Error:", e);
-      return { movies: [], nextPage: page, method: CurationMethod.TRENDING, note: "Emergency fallback to trending." };
+      return { movies: [], nextPage: page, method: CurationMethod.TRENDING, note: "AI & Cloud sync failed. Falling back to trending." };
     }
   }
 
@@ -237,14 +270,20 @@ export class MovieService {
     }
   }
 
-  static async saveProfile(profile: UserProfile): Promise<boolean> {
+  static async saveProfile(profile: UserProfile, onboardingData?: any): Promise<boolean> {
     try {
-      const { error } = await supabase.from('profiles').upsert({
-          username: profile.username,
-          full_name: profile.full_name,
-          avatar_url: profile.avatar_url,
-          letterboxd_username: profile.letterboxd_username
-        }, { onConflict: 'username' });
+      const dbData: any = {
+        username: profile.username,
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+        letterboxd_username: profile.letterboxd_username
+      };
+
+      if (onboardingData?.genres) {
+        dbData.onboarding_genres = onboardingData.genres;
+      }
+
+      const { error } = await supabase.from('profiles').upsert(dbData, { onConflict: 'username' });
       return !error;
     } catch (e) {
       return false;

@@ -117,7 +117,7 @@ const App: React.FC = () => {
       full_name: onboardingData.name,
       avatar_url: avatarUrl,
       letterboxd_username: onboardingData.letterboxdUsername
-    });
+    }, onboardingData); // Passing onboardingData here
 
     if (success) {
       if (onboardingData.masterpieces?.length > 0) {
@@ -130,6 +130,7 @@ const App: React.FC = () => {
             posterUrl: movie.posterUrl,
             type: InteractionType.WATCHED,
             timestamp: Date.now(),
+            personalRating: 5 // Masterpieces from onboarding get automatic 5-star for AI training
           });
         }
       }
@@ -247,7 +248,7 @@ const App: React.FC = () => {
   return (
     <div className="h-[100vh] w-full flex flex-col bg-black overflow-hidden relative text-white">
       <header className="flex items-center justify-between px-6 h-20 flex-shrink-0 relative z-50">
-        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('discover'); setIsViewingAllWatched(false); }}>
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('discover'); setIsViewingAllWatched(false); refreshData(); }}>
           <Logo className="w-10 h-10 drop-shadow-[0_0_10px_rgba(222,49,81,0.3)]" />
           <h1 className="font-black text-xl tracking-tighter uppercase italic">CineMatch</h1>
         </div>
@@ -375,6 +376,13 @@ const App: React.FC = () => {
               </div>
 
               <div className="space-y-6 mb-10">
+                {selectedMovie.curationLogic && (
+                  <div className="bg-[#DE3151]/10 border border-[#DE3151]/20 p-4 rounded-xl">
+                    <span className="text-[8px] font-black text-[#DE3151] uppercase tracking-widest block mb-1">Algorithmic Insight</span>
+                    <p className="text-zinc-200 text-[10px] italic font-medium">"{selectedMovie.curationLogic}"</p>
+                  </div>
+                )}
+
                 <div>
                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest block mb-2">Synopsis</label>
                   <p className="text-zinc-400 text-xs font-medium leading-relaxed">{selectedMovie.description}</p>

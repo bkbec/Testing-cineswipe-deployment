@@ -11,6 +11,7 @@ export interface Movie {
   title: string;
   description: string;
   fullSynopsis?: string;
+  curationLogic?: string; // AI explanation
   director?: string;
   cast?: string[];
   runtime?: string;

@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-// Added X to the lucide-react imports
-import { SlidersHorizontal, Loader2, Sparkles, Brain, Info, Zap, X } from 'lucide-react';
+import { SlidersHorizontal, Loader2, Sparkles, Brain, Info, Zap, X, AlertTriangle, Cloud } from 'lucide-react';
 import { Movie, InteractionType, DiscoveryFilters, CurationMethod } from '../types';
 import { MovieService } from '../services/movieService';
 import MovieCard from './MovieCard';
@@ -57,10 +56,9 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       setCurationMethod(result.method);
       setCurationNote(result.note || null);
       
-      // Briefly show curation status when new direction is applied
       if (isInitial) {
         setShowStatus(true);
-        setTimeout(() => setShowStatus(false), 5000);
+        setTimeout(() => setShowStatus(false), 6000);
       }
     } catch (e) {
       console.error("Discover load error", e);
@@ -145,7 +143,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
           <div>
             <h3 className="text-white font-black text-2xl tracking-tighter uppercase mb-2">Engaging Cinema Muse</h3>
             <p className="text-zinc-600 font-bold uppercase tracking-[0.4em] text-[10px] max-w-[240px] leading-loose">
-              Synchronizing direction with cinematic intelligence
+              Synchronizing direction with Gemini 3 Intelligence
             </p>
           </div>
         </motion.div>
@@ -166,12 +164,12 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
           </div>
           <div className="flex items-center gap-1.5 mt-0.5" onClick={() => setShowStatus(!showStatus)}>
             {curationMethod === CurationMethod.AI_TAILORED ? (
-              <Zap className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />
+              <Sparkles className="w-2.5 h-2.5 text-yellow-400" />
             ) : (
-              <Info className="w-2.5 h-2.5 text-zinc-600" />
+              <Cloud className="w-2.5 h-2.5 text-zinc-600" />
             )}
             <span className="text-[8px] font-black uppercase tracking-[0.2em] text-zinc-600">
-              {curationMethod === CurationMethod.AI_TAILORED ? 'AI Curated' : 'Smart Fallback'}
+              {curationMethod === CurationMethod.AI_TAILORED ? 'Gemini Active' : 'Fallback Engine'}
             </span>
           </div>
         </div>
@@ -188,25 +186,40 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
         <AnimatePresence>
           {showStatus && curationNote && (
             <motion.div 
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="absolute top-0 left-4 right-4 z-50 bg-zinc-950/90 border border-[#DE3151]/30 p-4 rounded-2xl backdrop-blur-xl shadow-2xl"
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              className={`absolute top-0 left-4 right-4 z-[100] border p-5 rounded-[2rem] backdrop-blur-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] ${
+                curationMethod === CurationMethod.AI_TAILORED 
+                ? 'bg-zinc-950/90 border-[#DE3151]/30 ring-1 ring-[#DE3151]/20' 
+                : 'bg-zinc-950/95 border-amber-500/30'
+              }`}
             >
-              <div className="flex items-start gap-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${curationMethod === CurationMethod.AI_TAILORED ? 'bg-[#DE3151]/10 text-[#DE3151]' : 'bg-zinc-800 text-zinc-500'}`}>
-                  {curationMethod === CurationMethod.AI_TAILORED ? <Sparkles className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+              <div className="flex items-start gap-4">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ${
+                  curationMethod === CurationMethod.AI_TAILORED 
+                  ? 'bg-[#DE3151]/10 text-[#DE3151]' 
+                  : 'bg-amber-500/10 text-amber-500'
+                }`}>
+                  {curationMethod === CurationMethod.AI_TAILORED ? <Sparkles className="w-5 h-5 animate-pulse" /> : <AlertTriangle className="w-5 h-5" />}
                 </div>
-                <div className="flex-1">
-                  <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">
-                    {curationMethod === CurationMethod.AI_TAILORED ? 'Curation Applied' : 'Direction Adjusted'}
-                  </h4>
-                  <p className="text-[9px] font-medium text-zinc-400 leading-relaxed italic">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h4 className={`text-[10px] font-black uppercase tracking-widest ${
+                      curationMethod === CurationMethod.AI_TAILORED ? 'text-white' : 'text-amber-500'
+                    }`}>
+                      {curationMethod === CurationMethod.AI_TAILORED ? 'Cinema Muse Engine' : 'Engine Fallback'}
+                    </h4>
+                    {curationMethod === CurationMethod.AI_TAILORED && (
+                      <div className="px-1.5 py-0.5 bg-zinc-800 rounded-md text-[7px] font-black text-zinc-400 tracking-tighter uppercase">Gemini 3</div>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-bold text-zinc-400 leading-relaxed italic pr-4">
                     {curationNote}
                   </p>
                 </div>
-                <button onClick={() => setShowStatus(false)} className="text-zinc-700 hover:text-white">
-                  <X className="w-3 h-3" />
+                <button onClick={() => setShowStatus(false)} className="text-zinc-700 hover:text-white transition-colors">
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             </motion.div>
