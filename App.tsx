@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, LogOut, Plus, Loader2, Play, Trash2, Settings2, X, Bell } from 'lucide-react';
+import { Sparkles, LogOut, Plus, Loader2, Play, Trash2, Settings2, X, Bell, Eye, Heart, Info, Clock, User, Clapperboard, Star } from 'lucide-react';
 import Logo from './components/Logo';
 import DiscoverSection from './components/DiscoverSection';
 import BottomNav from './components/BottomNav';
@@ -34,9 +34,11 @@ const App: React.FC = () => {
   const [matchMovie, setMatchMovie] = useState<Movie | null>(null);
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [isLoadingProfiles, setIsLoadingProfiles] = useState(true);
-  const [isManagingProfiles, setIsManagingProfiles] = useState(false);
-  const [profileToDelete, setProfileToDelete] = useState<UserProfile | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  
+  // New detail modal state
+  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const [isProcessingInteraction, setIsProcessingInteraction] = useState(false);
 
   const refreshProfiles = async () => {
     setIsLoadingProfiles(true);
@@ -47,7 +49,6 @@ const App: React.FC = () => {
       console.error("Profile fetch error", e);
     } finally {
       setIsLoadingProfiles(false);
-      // Only release initial load state after profiles are resolved to prevent flash
       setTimeout(() => setIsInitialLoad(false), 800);
     }
   };
@@ -90,7 +91,6 @@ const App: React.FC = () => {
   };
 
   const handleProfileSelect = (name: string) => {
-    if (isManagingProfiles) return;
     localStorage.setItem('user_name', name);
     setUserName(name);
   };
@@ -140,6 +140,48 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRemoveFromLikes = async (movie: Movie) => {
+    if (!userName || isProcessingInteraction) return;
+    setIsProcessingInteraction(true);
+    try {
+      const success = await MovieService.deleteInteraction(userName, movie.id);
+      if (success) {
+        setSelectedMovie(null);
+        showToast(`Removed "${movie.title}" from Likes`);
+        await refreshData();
+      }
+    } finally {
+      setIsProcessingInteraction(false);
+    }
+  };
+
+  const handleMarkAsWatched = async (movie: Movie) => {
+    if (!userName || isProcessingInteraction) return;
+    setIsProcessingInteraction(true);
+    try {
+      const success = await MovieService.submitInteraction({
+        userId: userName,
+        movieId: movie.id,
+        title: movie.title,
+        posterUrl: movie.posterUrl,
+        type: InteractionType.WATCHED,
+        timestamp: Date.now()
+      });
+      if (success) {
+        setSelectedMovie(null);
+        showToast(`Moved "${movie.title}" to Watched`);
+        await refreshData();
+      }
+    } finally {
+      setIsProcessingInteraction(false);
+    }
+  };
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 4000);
+  };
+
   const currentProfile = profiles.find(p => p.username === userName);
 
   if (isInitialLoad) {
@@ -164,7 +206,6 @@ const App: React.FC = () => {
         >
           <Logo className="w-10 h-10 mb-8 drop-shadow-[0_0_15px_rgba(222,49,81,0.2)]" />
           <h1 className="text-[10px] font-black text-zinc-500 tracking-[1em] uppercase mb-20 pl-[1em]">CineMatch</h1>
-          
           <motion.button 
             whileHover={{ scale: 1.02, brightness: 1.1 }} 
             whileTap={{ scale: 0.98 }} 
@@ -182,7 +223,7 @@ const App: React.FC = () => {
     if (userName === '__PENDING__') return <Onboarding onComplete={handleOnboardingComplete} />;
     return (
       <div className="fixed inset-0 z-[200] bg-black flex flex-col items-center justify-center p-8">
-        <h1 className="text-4xl font-black text-white uppercase mb-12">Who's Watching?</h1>
+        <h1 className="text-4xl font-black text-white uppercase mb-12 tracking-tighter">Who's Watching?</h1>
         <div className="flex flex-wrap justify-center gap-8 max-w-2xl">
           {profiles.map(p => (
             <button key={p.username} onClick={() => handleProfileSelect(p.username)} className="flex flex-col items-center gap-4 w-32">
@@ -193,7 +234,7 @@ const App: React.FC = () => {
             </button>
           ))}
           <button onClick={() => setUserName('__PENDING__')} className="flex flex-col items-center gap-4 w-32">
-            <div className="w-full aspect-square rounded-[2.5rem] border-2 border-dashed border-zinc-800 flex items-center justify-center hover:border-[#DE3151]"><Plus className="w-10 h-10 text-zinc-700" /></div>
+            <div className="w-full aspect-square rounded-[2.5rem] border-2 border-dashed border-zinc-800 flex items-center justify-center hover:border-[#DE3151] transition-all"><Plus className="w-10 h-10 text-zinc-700" /></div>
             <span className="font-black text-[10px] uppercase text-zinc-700">Add Profile</span>
           </button>
         </div>
@@ -203,30 +244,192 @@ const App: React.FC = () => {
 
   if (!hasOnboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
 
-  const showToast = (msg: string) => {
-    setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 4000);
-  };
-
   return (
     <div className="h-[100vh] w-full flex flex-col bg-black overflow-hidden relative text-white">
       <header className="flex items-center justify-between px-6 h-20 flex-shrink-0 relative z-50">
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => { setActiveTab('discover'); setIsViewingAllWatched(false); }}>
           <Logo className="w-10 h-10 drop-shadow-[0_0_10px_rgba(222,49,81,0.3)]" />
-          <h1 className="font-black text-xl tracking-tighter uppercase">CineMatch</h1>
+          <h1 className="font-black text-xl tracking-tighter uppercase italic">CineMatch</h1>
         </div>
-        <button onClick={handleLogout} className="w-10 h-10 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-500 hover:text-[#DE3151]"><LogOut className="w-4 h-4" /></button>
+        <button onClick={handleLogout} className="w-10 h-10 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-500 hover:text-[#DE3151] active:scale-90 transition-all"><LogOut className="w-4 h-4" /></button>
       </header>
       <main className="flex-1 flex flex-col relative overflow-hidden">
         {activeTab === 'discover' && <DiscoverSection userId={userName} onInteraction={() => refreshData()} />}
-        {activeTab === 'likes' && <div className="p-6 h-full overflow-y-auto no-scrollbar"><h2 className="text-3xl font-black uppercase mb-8">Favorites</h2><div className="grid grid-cols-2 gap-4">{likedMovies.map(m => <div key={m.id} className="aspect-[2/3] rounded-2xl overflow-hidden"><img src={m.posterUrl} className="w-full h-full object-cover" /></div>)}</div></div>}
-        {activeTab === 'shared' && <div className="p-6 h-full overflow-y-auto no-scrollbar"><h2 className="text-3xl font-black uppercase mb-8">Shared</h2><div className="grid grid-cols-2 gap-4">{sharedMovies.map(m => <div key={m.id} className="aspect-[2/3] rounded-2xl overflow-hidden"><img src={m.posterUrl} className="w-full h-full object-cover" /></div>)}</div></div>}
+        
+        {activeTab === 'likes' && (
+          <div className="p-6 h-full overflow-y-auto no-scrollbar">
+            <h2 className="text-3xl font-black uppercase mb-8 italic tracking-tighter">Favorites</h2>
+            <div className="grid grid-cols-2 gap-4 pb-32">
+              {likedMovies.map(m => (
+                <motion.button 
+                  key={m.id} 
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setSelectedMovie(m)}
+                  className="aspect-[2/3] rounded-2xl overflow-hidden border border-white/5 shadow-2xl relative group"
+                >
+                  <img src={m.posterUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Info className="w-8 h-8 text-white" />
+                  </div>
+                </motion.button>
+              ))}
+              {likedMovies.length === 0 && (
+                <div className="col-span-2 text-center py-20">
+                  <Heart className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
+                  <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">No likes yet. Keep swiping!</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'shared' && (
+          <div className="p-6 h-full overflow-y-auto no-scrollbar">
+            <h2 className="text-3xl font-black uppercase mb-8 italic tracking-tighter">Shared</h2>
+            <div className="grid grid-cols-2 gap-4 pb-32">
+              {sharedMovies.map(m => (
+                <motion.button 
+                  key={m.id}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setSelectedMovie(m)}
+                  className="aspect-[2/3] rounded-2xl overflow-hidden border border-white/5 shadow-2xl relative group"
+                >
+                  <img src={m.posterUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Info className="w-8 h-8 text-white" />
+                  </div>
+                </motion.button>
+              ))}
+              {sharedMovies.length === 0 && (
+                <div className="col-span-2 text-center py-20">
+                  <Sparkles className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
+                  <p className="text-zinc-600 font-bold uppercase tracking-widest text-xs">No shared matches found.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'profile' && !isViewingAllWatched && <ProfileSection profile={currentProfile} likedMovies={likedMovies} watchedMovies={watchedMovies} onViewAllWatched={() => setIsViewingAllWatched(true)} onProfileUpdate={refreshProfiles} onShowToast={showToast} />}
         {activeTab === 'profile' && isViewingAllWatched && <WatchedHistoryView userId={userName} movies={watchedMovies} onBack={() => setIsViewingAllWatched(false)} onUpdate={refreshData} />}
       </main>
+      
       <BottomNav activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); setIsViewingAllWatched(false); refreshData(); }} />
-      {matchMovie && <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6"><div className="absolute inset-0 bg-[#DE3151]/20 backdrop-blur-xl" onClick={() => setMatchMovie(null)} /><div className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 text-center max-w-sm"><Sparkles className="w-12 h-12 text-[#DE3151] mx-auto mb-6" /><h2 className="text-4xl font-black uppercase mb-4 italic">Match!</h2><div className="w-full aspect-[2/3] rounded-2xl overflow-hidden mb-8"><img src={matchMovie.posterUrl} /></div><button onClick={() => setMatchMovie(null)} className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase">Amazing!</button></div></div>}
-      <AnimatePresence>{toastMsg && <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-[#DE3151] text-white px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest">{toastMsg}</motion.div>}</AnimatePresence>
+
+      {/* Shared Match Success Overlay */}
+      {matchMovie && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6">
+          <div className="absolute inset-0 bg-[#DE3151]/20 backdrop-blur-xl" onClick={() => setMatchMovie(null)} />
+          <div className="relative bg-zinc-950 border-4 border-[#DE3151] rounded-[3rem] p-8 text-center max-w-sm">
+            <Sparkles className="w-12 h-12 text-[#DE3151] mx-auto mb-6" />
+            <h2 className="text-4xl font-black uppercase mb-4 italic tracking-tighter">Match!</h2>
+            <div className="w-full aspect-[2/3] rounded-2xl overflow-hidden mb-8 shadow-2xl">
+              <img src={matchMovie.posterUrl} className="w-full h-full object-cover" />
+            </div>
+            <button onClick={() => setMatchMovie(null)} className="w-full py-5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-widest text-xs">Amazing!</button>
+          </div>
+        </div>
+      )}
+
+      {/* Movie Detail Modal */}
+      <AnimatePresence>
+        {selectedMovie && (
+          <div className="fixed inset-0 z-[1000] flex items-end justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => !isProcessingInteraction && setSelectedMovie(null)}
+              className="absolute inset-0 bg-black/95 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-md bg-zinc-950 border-t border-white/5 rounded-t-[3rem] p-8 pb-12 shadow-[0_-20px_60px_rgba(222,49,81,0.3)] flex flex-col overflow-y-auto max-h-[90vh] no-scrollbar"
+            >
+              <div className="w-16 h-1 bg-zinc-800 rounded-full mx-auto mb-8 shrink-0" />
+              
+              <div className="flex gap-6 mb-8 shrink-0">
+                <div className="w-32 aspect-[2/3] rounded-2xl overflow-hidden border border-white/5 shadow-2xl shrink-0">
+                  <img src={selectedMovie.posterUrl} className="w-full h-full object-cover" />
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col justify-center">
+                  <span className="text-[10px] font-black text-[#DE3151] uppercase tracking-[0.4em] mb-1 block">{selectedMovie.releaseYear}</span>
+                  <h3 className="text-2xl font-black text-white tracking-tighter mb-4 uppercase italic leading-tight">{selectedMovie.title}</h3>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded-md border border-white/5">
+                       <Star className="w-3 h-3 text-[#00E054] fill-[#00E054]" />
+                       <span className="text-[10px] font-black text-white">{selectedMovie.ratings.letterboxd}</span>
+                    </div>
+                    {selectedMovie.ratings.rottenTomatoesCritic !== 'N/A' && (
+                      <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded-md border border-white/5">
+                         <img src="https://www.rottentomatoes.com/assets/cas/images/static/icons/fresh.svg" className="w-3 h-3" alt="RT" />
+                         <span className="text-[10px] font-black text-white">{selectedMovie.ratings.rottenTomatoesCritic}%</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-6 mb-10">
+                <div>
+                  <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest block mb-2">Synopsis</label>
+                  <p className="text-zinc-400 text-xs font-medium leading-relaxed">{selectedMovie.description}</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-white/5">
+                     <div className="flex items-center gap-2 mb-1.5 text-zinc-600">
+                       <Clapperboard className="w-3 h-3" />
+                       <span className="text-[8px] font-black uppercase tracking-widest">Director</span>
+                     </div>
+                     <span className="text-zinc-200 text-[11px] font-bold truncate block">{selectedMovie.director || 'N/A'}</span>
+                  </div>
+                  <div className="bg-zinc-900/60 p-4 rounded-xl border border-white/5">
+                     <div className="flex items-center gap-2 mb-1.5 text-zinc-600">
+                       <Clock className="w-3 h-3" />
+                       <span className="text-[8px] font-black uppercase tracking-widest">Runtime</span>
+                     </div>
+                     <span className="text-zinc-200 text-[11px] font-bold">{selectedMovie.runtime || 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interaction Actions */}
+              <div className="flex flex-col gap-3 shrink-0">
+                <button 
+                  onClick={() => handleMarkAsWatched(selectedMovie)}
+                  disabled={isProcessingInteraction}
+                  className="w-full py-5 bg-zinc-100 text-black rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all shadow-xl"
+                >
+                  <Eye className="w-5 h-5" />
+                  Mark as Watched
+                </button>
+                <button 
+                  onClick={() => handleRemoveFromLikes(selectedMovie)}
+                  disabled={isProcessingInteraction}
+                  className="w-full py-5 bg-zinc-900 text-red-500 border border-red-500/20 rounded-2xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-all"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Remove from Likes
+                </button>
+                <button 
+                  onClick={() => setSelectedMovie(null)}
+                  disabled={isProcessingInteraction}
+                  className="w-full py-4 text-zinc-600 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>{toastMsg && <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 50, opacity: 0 }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[2000] bg-[#DE3151] text-white px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-2xl">{toastMsg}</motion.div>}</AnimatePresence>
     </div>
   );
 };

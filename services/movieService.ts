@@ -16,9 +16,6 @@ const TMDB_GENRES: Record<number, string> = {
 };
 
 export class MovieService {
-  /**
-   * Syncs Letterboxd history using the exported watched.csv file.
-   */
   static async syncLetterboxdCSV(
     file: File, 
     userId: string, 
@@ -90,12 +87,12 @@ export class MovieService {
       const highRated = interactions.filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
         .map(i => `${i.title} (${i.personalRating} stars)`);
 
-      const prompt = `Analyze taste DNA for user recommendations.
-      Likes: ${likes.join(', ')}
+      const prompt = `Analyze taste DNA and fulfill specific movie request.
+      User History Likes: ${likes.join(', ')}
       Highly Rated: ${highRated.join(' | ')}
-      Mood: ${filters?.mood || 'Any'}
-      Genre: ${filters?.genre || 'Any'}
-      Wildcard: ${filters?.wildcard ? 'YES' : 'NO'}`;
+      Specific User Prompt: "${filters?.naturalLanguagePrompt || 'Find something great based on my history'}"
+      
+      Output exactly 10-15 film titles and relevant TMDB genre IDs that match this specific request AND the user's taste.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -117,6 +114,7 @@ export class MovieService {
 
       return JSON.parse(response.text || '{}');
     } catch (e) {
+      console.error("AI Analysis failed:", e);
       return null;
     }
   }
@@ -125,11 +123,13 @@ export class MovieService {
     try {
       const interactions = await this.getInteractions(userId);
       const swipedIds = new Set(interactions.map(i => String(i.movieId)));
-      const taste = (page === 1) ? await this.analyzeTaste(userId, filters) : null;
+      
+      // AI analysis is key for natural language discovery
+      const taste = (page === 1 || filters?.naturalLanguagePrompt) ? await this.analyzeTaste(userId, filters) : null;
       
       let candidateMovies: Movie[] = [];
 
-      // 1. Process AI Taste Suggestions
+      // 1. Prioritize AI Suggested Titles
       if (taste?.suggested_titles?.length > 0) {
         const aiMovies = await Promise.all(
           taste.suggested_titles.map(async (title: string) => {
@@ -141,15 +141,10 @@ export class MovieService {
         candidateMovies.push(...detailedAiMovies);
       }
 
-      // 2. Fetch from TMDB Discover
+      // 2. Supplement from TMDB Discover
       let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=150&language=en-US`;
       if (taste?.genre_ids?.length > 0) discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
-      if (filters?.genre) {
-        const genreId = Object.keys(TMDB_GENRES).find(key => TMDB_GENRES[Number(key)] === filters.genre);
-        if (genreId) discoverUrl += `&with_genres=${genreId}`;
-      }
-      if (filters?.maxRuntime) discoverUrl += `&with_runtime.lte=${filters.maxRuntime}`;
-
+      
       const res = await fetch(discoverUrl);
       const data = await res.json();
       
@@ -157,28 +152,21 @@ export class MovieService {
       const discoveredEnriched = await this.enrichMovies(discoveredRaw);
       candidateMovies.push(...discoveredEnriched);
 
-      // 3. APPLY FILTERS (Swipe history + Dedupe + QUALITY GATE)
+      // 3. APPLY FILTERS
       const filtered = candidateMovies.filter((m, index, self) => {
         if (!m || !m.id) return false;
-        
-        // Skip already swiped
         if (swipedIds.has(m.id)) return false;
-        
-        // Deduplicate
         if (self.findIndex(t => t.id === m.id) !== index) return false;
 
-        // QUALITY FILTER: RT >= 65% OR Letterboxd >= 3.2
         const rtScore = m.ratings.rottenTomatoesCritic;
         const lbScore = m.ratings.letterboxd;
-        
         const meetsRT = rtScore !== 'N/A' && Number(rtScore) >= 65;
         const meetsLB = lbScore >= 3.2;
 
         return meetsRT || meetsLB;
       });
 
-      // 4. If we don't have enough movies, fetch the next page recursively
-      if (filtered.length < 5 && page < 25) {
+      if (filtered.length < 5 && page < 20) {
         const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
         return {
           movies: [...filtered, ...nextBatch.movies],
@@ -344,6 +332,15 @@ export class MovieService {
         dbUpdates.swipe_type = updates.type;
       }
       const { error } = await supabase.from('swipes').update(dbUpdates).match({ user_name: userId, movie_id: String(movieId) });
+      return !error;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static async deleteInteraction(userId: string, movieId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('swipes').delete().match({ user_name: userId, movie_id: String(movieId) });
       return !error;
     } catch (e) {
       return false;

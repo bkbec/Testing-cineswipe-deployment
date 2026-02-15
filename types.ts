@@ -69,6 +69,7 @@ export interface UserProfile {
 }
 
 export interface DiscoveryFilters {
+  naturalLanguagePrompt?: string;
   genre?: string;
   mood?: string;
   maxRuntime?: number;
