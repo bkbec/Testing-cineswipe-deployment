@@ -32,7 +32,6 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFil
           .map((result) => result.transcript)
           .join('');
         
-        // Append voice session transcript to what was there before the mic was clicked
         const base = preVoicePrompt.current.trim();
         const separator = base ? ' ' : '';
         setPrompt(`${base}${separator}${sessionTranscript}`);
@@ -40,7 +39,6 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFil
 
       recognition.onend = () => {
         setIsListening(false);
-        // Focus the textarea when listening ends to allow immediate editing
         textareaRef.current?.focus();
       };
 
@@ -58,7 +56,6 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFil
     if (isListening) {
       recognitionRef.current.stop();
     } else {
-      // Store current prompt so we can append new voice data to it
       preVoicePrompt.current = prompt;
       recognitionRef.current.start();
       setIsListening(true);
@@ -66,11 +63,15 @@ const FilterDrawer: React.FC<FilterDrawerProps> = ({ isOpen, onClose, currentFil
   };
 
   const handleApply = () => {
-    if (onApply) onApply({ naturalLanguagePrompt: prompt, wildcard: false });
+    if (onApply) {
+      onApply({ naturalLanguagePrompt: prompt, wildcard: false });
+    }
   };
 
   const handleSurprise = () => {
-    if (onApply) onApply({ naturalLanguagePrompt: '', wildcard: true });
+    if (onApply) {
+      onApply({ naturalLanguagePrompt: '', wildcard: true });
+    }
   };
 
   return (

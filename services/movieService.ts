@@ -79,6 +79,11 @@ export class MovieService {
   }
 
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
+    if (!process.env.API_KEY) {
+      console.warn("Gemini API Key missing from environment. Discovery will use genre-based fallbacks.");
+      return null;
+    }
+
     try {
       const interactions = await this.getInteractions(userId);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -87,18 +92,23 @@ export class MovieService {
       const highRated = interactions.filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
         .map(i => `${i.title} (${i.personalRating} stars)`);
 
-      const prompt = `Analyze taste DNA and fulfill specific movie request.
-      User History Likes: ${likes.join(', ')}
-      Highly Rated: ${highRated.join(' | ')}
-      Specific User Prompt: "${filters?.naturalLanguagePrompt || 'Find something great based on my history'}"
+      const systemInstruction = `You are the Cinema Muse, an expert film curator. 
+      Your goal is to bypass generic blockbusters and find deep-cut recommendations. 
+      Ignore movies in the user's history. focus on niche, high-quality films that match the mood.`;
+
+      const prompt = `User History: 
+      Likes: ${likes.slice(-10).join(', ') || 'None yet'}
+      Top Rated: ${highRated.slice(-10).join(' | ') || 'None yet'}
       
-      Output exactly 10-15 film titles and relevant TMDB genre IDs that match this specific request AND the user's taste.`;
+      User Request: "${filters?.naturalLanguagePrompt || 'Find something unexpected and tailored to my DNA'}"
+      
+      Generate 15 specific, unique movie titles and the corresponding TMDB Genre IDs.`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: {
-          thinkingConfig: { thinkingBudget: 0 },
+          systemInstruction,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -114,7 +124,7 @@ export class MovieService {
 
       return JSON.parse(response.text || '{}');
     } catch (e) {
-      console.error("AI Analysis failed:", e);
+      console.error("Gemini AI Analysis failed on Vercel:", e);
       return null;
     }
   }
@@ -124,12 +134,12 @@ export class MovieService {
       const interactions = await this.getInteractions(userId);
       const swipedIds = new Set(interactions.map(i => String(i.movieId)));
       
-      // AI analysis is key for natural language discovery
+      // Step 1: Get AI Suggestions
       const taste = (page === 1 || filters?.naturalLanguagePrompt) ? await this.analyzeTaste(userId, filters) : null;
       
       let candidateMovies: Movie[] = [];
 
-      // 1. Prioritize AI Suggested Titles
+      // Step 2: Handle AI Results
       if (taste?.suggested_titles?.length > 0) {
         const aiMovies = await Promise.all(
           taste.suggested_titles.map(async (title: string) => {
@@ -141,9 +151,26 @@ export class MovieService {
         candidateMovies.push(...detailedAiMovies);
       }
 
-      // 2. Supplement from TMDB Discover
-      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=150&language=en-US`;
-      if (taste?.genre_ids?.length > 0) discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
+      // Step 3: Supplement from TMDB Discover with "Smart Fallback"
+      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&language=en-US`;
+      
+      // If AI failed or we need more, use history-based genres as fallback instead of just "random popularity"
+      if (taste?.genre_ids?.length > 0) {
+        discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
+      } else if (interactions.length > 0) {
+        // Fallback: If AI fails but we have history, use the last liked genre
+        const lastLike = interactions.filter(i => i.type === InteractionType.YES).pop();
+        if (lastLike) {
+           const search = await this.searchMovies(lastLike.title || '');
+           if (search[0]?.id) {
+             const detailRes = await fetch(`${TMDB_BASE_URL}/movie/${search[0].id}?api_key=${TMDB_API_KEY}`);
+             const detail = await detailRes.json();
+             if (detail.genres?.[0]) {
+               discoverUrl += `&with_genres=${detail.genres[0].id}`;
+             }
+           }
+        }
+      }
       
       const res = await fetch(discoverUrl);
       const data = await res.json();
@@ -152,21 +179,28 @@ export class MovieService {
       const discoveredEnriched = await this.enrichMovies(discoveredRaw);
       candidateMovies.push(...discoveredEnriched);
 
-      // 3. APPLY FILTERS
+      // Step 4: Quality Control & Filtering
       const filtered = candidateMovies.filter((m, index, self) => {
         if (!m || !m.id) return false;
         if (swipedIds.has(m.id)) return false;
+        // Check if swiped title is already in history (sometimes IDs vary but titles match)
+        const historyTitles = new Set(interactions.map(i => (i.title || '').toLowerCase()));
+        if (historyTitles.has(m.title.toLowerCase())) return false;
+        
         if (self.findIndex(t => t.id === m.id) !== index) return false;
 
         const rtScore = m.ratings.rottenTomatoesCritic;
         const lbScore = m.ratings.letterboxd;
-        const meetsRT = rtScore !== 'N/A' && Number(rtScore) >= 65;
-        const meetsLB = lbScore >= 3.2;
+        
+        // Quality Gate: Either decent RT or decent Letterboxd
+        const meetsRT = rtScore !== 'N/A' && Number(rtScore) >= 60;
+        const meetsLB = lbScore >= 3.0;
 
         return meetsRT || meetsLB;
       });
 
-      if (filtered.length < 5 && page < 20) {
+      // Recursive fill if empty (avoid returning nothing)
+      if (filtered.length < 5 && page < 15) {
         const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
         return {
           movies: [...filtered, ...nextBatch.movies],
@@ -176,6 +210,7 @@ export class MovieService {
 
       return { movies: filtered, nextPage: page + 1 };
     } catch (error) {
+      console.error("Discovery Engine Error:", error);
       return { movies: [], nextPage: page };
     }
   }

@@ -34,6 +34,8 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       setIsLoading(true);
       setCurrentIndex(0);
       setNextPage(1);
+      // Clear current queue immediately to trigger the "Assembling Feed" loading UI
+      setQueue([]);
     } else {
       if (isFetchingMore) return;
       setIsFetchingMore(true);
@@ -63,6 +65,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   const handleApplyFilters = (newFilters: DiscoveryFilters) => {
     setFilters(newFilters);
     setIsFilterOpen(false);
+    // Explicitly call loadMovies with true to reset the state
     loadMovies(true, newFilters);
   };
 
@@ -110,8 +113,8 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-black z-50">
         <motion.div 
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
           className="flex flex-col items-center text-center space-y-8"
         >
           <div className="relative w-32 h-32">
