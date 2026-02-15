@@ -88,7 +88,7 @@ export class MovieService {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
-      // Fetch everything from Supabase Cloud
+      // Fetch everything from Supabase Cloud to feed the AI
       const profile = await this.getProfile(userId);
       const interactions = await this.getInteractions(userId);
       
@@ -99,22 +99,22 @@ export class MovieService {
       
       const onboardingGenres = profile?.onboarding_genres || []; 
 
-      const systemInstruction = `You are the Cinema Muse. Your "Brain" is the user's Supabase cloud data.
-      USER CLOUD PROFILE:
-      - Favorite Genres (Onboarding): ${onboardingGenres.join(', ')}
-      - Liked Movies: ${likes.slice(-10).join(', ')}
-      - Masterpieces (Rated 4-5 stars): ${masterpieces.slice(-5).join(', ')}
+      const systemInstruction = `You are the Cinema Muse. Your knowledge base is the user's SUPABASE CLOUD DATA.
+      USER CLOUD PROFILE (Source of Truth):
+      - Interests (Genres): ${onboardingGenres.join(', ')}
+      - Likes: ${likes.slice(-10).join(', ')}
+      - 5-Star Anchors: ${masterpieces.slice(-5).join(', ')}
       
       CURATION RULES:
-      1. Use the USER CLOUD PROFILE as the primary guidance.
-      2. If DIRECTION is provided, blend it with the user's established tastes.
-      3. Focus on niche, artistic, or high-quality cinema.
+      1. Prioritize recommendations based on the USER CLOUD PROFILE.
+      2. If DIRECTION is provided, blend it with the cloud history.
+      3. Suggest niche, artistic, or high-quality films.
       4. EXCLUDE: ${likes.concat(masterpieces).join(', ')}.`;
 
-      const prompt = `DIRECTION: "${filters?.naturalLanguagePrompt || 'Give me something that matches my profile'}"
+      const prompt = `DIRECTION: "${filters?.naturalLanguagePrompt || 'Curate based on my Supabase profile'}"
       
-      Suggest 15 specific films. For each film, provide a "logic" field explaining why it fits based on the cloud data.
-      Return JSON: { "suggested": [{ "title": "Film Name", "logic": "Why it matches" }], "genre_ids": [] }`;
+      Suggest 15 films. For each film, provide a "logic" field linking it to their cloud profile.
+      Return JSON: { "suggested": [{ "title": "Film Name", "logic": "Linked via interest in [Genre/Movie]" }], "genre_ids": [] }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -157,9 +157,9 @@ export class MovieService {
       
       let movies: Movie[] = [];
       let method = CurationMethod.AI_TAILORED;
-      let note = "Cinema Muse (Gemini 3) is curating your feed from Cloud DNA.";
+      let note = "Cinema Muse (Gemini 3) is curating your feed using Supabase Cloud DNA.";
 
-      // 1. Attempt AI Tailoring
+      // 1. Attempt AI Tailoring (Gemini)
       const aiResult = await this.analyzeTaste(userId, filters);
       
       if (aiResult?.suggested?.length > 0) {
@@ -177,10 +177,7 @@ export class MovieService {
         
         movies = enriched.map(m => {
           const matchingItem = validItems.find(vi => vi.id === m.id);
-          if (matchingItem) {
-            return { ...m, curationLogic: matchingItem.logic };
-          }
-          return m;
+          return matchingItem ? { ...m, curationLogic: matchingItem.logic } : m;
         });
       }
 
@@ -191,7 +188,7 @@ export class MovieService {
         const topGenreNames = profile?.onboarding_genres || ['Drama', 'Sci-Fi'];
         const genreIds = topGenreNames.map((n: string) => GENRE_NAME_TO_ID[n.toLowerCase()]).filter(Boolean);
         
-        note = `Gemini failed. Using Cloud Fallback: Curating via ${topGenreNames.join('/')} Supabase DNA.`;
+        note = `Gemini connection failed. Using Supabase Fallback: Curating via your cloud-synced ${topGenreNames.join('/')} profile.`;
         
         let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&with_genres=${genreIds.join('|')}`;
         const res = await fetch(discoverUrl);
@@ -224,7 +221,7 @@ export class MovieService {
       };
     } catch (e) {
       console.error("Discovery Engine Error:", e);
-      return { movies: [], nextPage: page, method: CurationMethod.TRENDING, note: "AI & Cloud sync failed. Falling back to trending." };
+      return { movies: [], nextPage: page, method: CurationMethod.TRENDING, note: "AI & Cloud sync failed. Falling back to Trending." };
     }
   }
 

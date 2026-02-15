@@ -58,7 +58,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       
       if (isInitial) {
         setShowStatus(true);
-        setTimeout(() => setShowStatus(false), 6000);
+        setTimeout(() => setShowStatus(false), 7000);
       }
     } catch (e) {
       console.error("Discover load error", e);
@@ -143,7 +143,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
           <div>
             <h3 className="text-white font-black text-2xl tracking-tighter uppercase mb-2">Engaging Cinema Muse</h3>
             <p className="text-zinc-600 font-bold uppercase tracking-[0.4em] text-[10px] max-w-[240px] leading-loose">
-              Synchronizing direction with Gemini 3 Intelligence
+              Syncing Cloud DNA with Gemini 3 Intelligence
             </p>
           </div>
         </motion.div>
@@ -169,7 +169,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
               <Cloud className="w-2.5 h-2.5 text-zinc-600" />
             )}
             <span className="text-[8px] font-black uppercase tracking-[0.2em] text-zinc-600">
-              {curationMethod === CurationMethod.AI_TAILORED ? 'Gemini Active' : 'Fallback Engine'}
+              {curationMethod === CurationMethod.AI_TAILORED ? 'Gemini 3 Curated' : 'Supabase Fallback'}
             </span>
           </div>
         </div>
@@ -189,30 +189,30 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
               initial={{ opacity: 0, y: -20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              className={`absolute top-0 left-4 right-4 z-[100] border p-5 rounded-[2rem] backdrop-blur-2xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] ${
+              className={`absolute top-0 left-4 right-4 z-[100] border p-5 rounded-[2rem] backdrop-blur-3xl shadow-[0_30px_60px_-12px_rgba(0,0,0,0.6)] ${
                 curationMethod === CurationMethod.AI_TAILORED 
-                ? 'bg-zinc-950/90 border-[#DE3151]/30 ring-1 ring-[#DE3151]/20' 
-                : 'bg-zinc-950/95 border-amber-500/30'
+                ? 'bg-zinc-950/95 border-[#DE3151]/40 ring-1 ring-[#DE3151]/20' 
+                : 'bg-zinc-950/98 border-amber-500/40 ring-1 ring-amber-500/10'
               }`}
             >
               <div className="flex items-start gap-4">
-                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ${
+                <div className={`w-12 h-12 rounded-[1.25rem] flex items-center justify-center shrink-0 shadow-inner ${
                   curationMethod === CurationMethod.AI_TAILORED 
                   ? 'bg-[#DE3151]/10 text-[#DE3151]' 
                   : 'bg-amber-500/10 text-amber-500'
                 }`}>
-                  {curationMethod === CurationMethod.AI_TAILORED ? <Sparkles className="w-5 h-5 animate-pulse" /> : <AlertTriangle className="w-5 h-5" />}
+                  {curationMethod === CurationMethod.AI_TAILORED ? <Zap className="w-6 h-6 animate-pulse fill-[#DE3151]" /> : <AlertTriangle className="w-6 h-6" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <h4 className={`text-[10px] font-black uppercase tracking-widest ${
                       curationMethod === CurationMethod.AI_TAILORED ? 'text-white' : 'text-amber-500'
                     }`}>
-                      {curationMethod === CurationMethod.AI_TAILORED ? 'Cinema Muse Engine' : 'Engine Fallback'}
+                      {curationMethod === CurationMethod.AI_TAILORED ? 'Cinema Muse Engine' : 'Sync Fallback'}
                     </h4>
-                    {curationMethod === CurationMethod.AI_TAILORED && (
-                      <div className="px-1.5 py-0.5 bg-zinc-800 rounded-md text-[7px] font-black text-zinc-400 tracking-tighter uppercase">Gemini 3</div>
-                    )}
+                    <div className="px-1.5 py-0.5 bg-zinc-900 rounded-md text-[7px] font-black text-zinc-500 tracking-tighter uppercase border border-white/5">
+                      {curationMethod === CurationMethod.AI_TAILORED ? 'Gemini 3 Pro' : 'Supabase DNA'}
+                    </div>
                   </div>
                   <p className="text-[10px] font-bold text-zinc-400 leading-relaxed italic pr-4">
                     {curationNote}

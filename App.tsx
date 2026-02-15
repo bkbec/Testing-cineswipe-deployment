@@ -208,7 +208,8 @@ const App: React.FC = () => {
           <Logo className="w-10 h-10 mb-8 drop-shadow-[0_0_15px_rgba(222,49,81,0.2)]" />
           <h1 className="text-[10px] font-black text-zinc-500 tracking-[1em] uppercase mb-20 pl-[1em]">CineMatch</h1>
           <motion.button 
-            whileHover={{ scale: 1.02, brightness: 1.1 }} 
+            // Fix: 'brightness' is not a valid top-level property in TargetAndTransition; moved to 'filter'
+            whileHover={{ scale: 1.02, filter: 'brightness(1.1)' }} 
             whileTap={{ scale: 0.98 }} 
             onClick={() => setShowStartPage(false)} 
             className="px-10 py-3.5 bg-[#DE3151] text-white rounded-2xl font-black uppercase tracking-[0.3em] text-[9px] shadow-2xl shadow-[#DE3151]/20 transition-all duration-500"
