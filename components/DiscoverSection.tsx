@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { SlidersHorizontal, Loader2, Sparkles } from 'lucide-react';
-import { Movie, InteractionType, DiscoveryFilters } from '../types';
+// Added X to the lucide-react imports
+import { SlidersHorizontal, Loader2, Sparkles, Brain, Info, Zap, X } from 'lucide-react';
+import { Movie, InteractionType, DiscoveryFilters, CurationMethod } from '../types';
 import { MovieService } from '../services/movieService';
 import MovieCard from './MovieCard';
 import TrailerModal from './TrailerModal';
@@ -19,6 +20,10 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [nextPage, setNextPage] = useState(1);
+  const [curationMethod, setCurationMethod] = useState<CurationMethod>(CurationMethod.TRENDING);
+  const [curationNote, setCurationNote] = useState<string | null>(null);
+  const [showStatus, setShowStatus] = useState(false);
+
   const [trailerMovie, setTrailerMovie] = useState<Movie | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [exitDirection, setExitDirection] = useState<{ x: number; y: number; rotate: number }>({ x: 0, y: 0, rotate: 0 });
@@ -34,7 +39,6 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       setIsLoading(true);
       setCurrentIndex(0);
       setNextPage(1);
-      // Clear current queue immediately to trigger the "Assembling Feed" loading UI
       setQueue([]);
     } else {
       if (isFetchingMore) return;
@@ -44,12 +48,20 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
     try {
       const activeFilters = currentFilters || filters;
       const pageToFetch = isInitial ? 1 : nextPage;
-      const { movies, nextPage: next } = await MovieService.getDiscoverQueue(userId, pageToFetch, activeFilters);
+      const result = await MovieService.getDiscoverQueue(userId, pageToFetch, activeFilters);
       
-      const displayQueue = (movies || []).filter(m => m && m.id);
+      const displayQueue = (result.movies || []).filter(m => m && m.id);
       
       setQueue(prev => isInitial ? displayQueue : [...prev, ...displayQueue]);
-      setNextPage(next);
+      setNextPage(result.nextPage);
+      setCurationMethod(result.method);
+      setCurationNote(result.note || null);
+      
+      // Briefly show curation status when new direction is applied
+      if (isInitial) {
+        setShowStatus(true);
+        setTimeout(() => setShowStatus(false), 5000);
+      }
     } catch (e) {
       console.error("Discover load error", e);
     } finally {
@@ -65,7 +77,6 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   const handleApplyFilters = (newFilters: DiscoveryFilters) => {
     setFilters(newFilters);
     setIsFilterOpen(false);
-    // Explicitly call loadMovies with true to reset the state
     loadMovies(true, newFilters);
   };
 
@@ -100,8 +111,7 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
         title: currentMovie.title,
         posterUrl: currentMovie.posterUrl,
         type,
-        timestamp: Date.now(),
-        notes: ''
+        timestamp: Date.now()
       });
       if (onInteraction) onInteraction(safeMovieId, type);
     }
@@ -129,13 +139,13 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
               className="absolute inset-3 border-2 border-zinc-800 border-b-transparent rounded-full"
             />
             <div className="absolute inset-0 flex items-center justify-center">
-              <Sparkles className="w-8 h-8 text-[#DE3151] animate-pulse" />
+              <Brain className="w-8 h-8 text-[#DE3151] animate-pulse" />
             </div>
           </div>
           <div>
-            <h3 className="text-white font-black text-2xl tracking-tighter uppercase mb-2">Assembling Feed</h3>
+            <h3 className="text-white font-black text-2xl tracking-tighter uppercase mb-2">Engaging Cinema Muse</h3>
             <p className="text-zinc-600 font-bold uppercase tracking-[0.4em] text-[10px] max-w-[240px] leading-loose">
-              Analyzing cinematic DNA & synchronizing taste
+              Synchronizing direction with cinematic intelligence
             </p>
           </div>
         </motion.div>
@@ -149,9 +159,21 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
   return (
     <div className="flex-1 flex flex-col w-full max-w-md mx-auto relative px-4 pb-32 pt-1">
       <div className="flex justify-between items-center mb-4 px-4">
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-xl font-black text-white tracking-tighter uppercase italic">Discover</h2>
-          {isFetchingMore && <Loader2 className="w-3 h-3 text-[#DE3151] animate-spin" />}
+        <div className="flex flex-col">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-xl font-black text-white tracking-tighter uppercase italic">Discover</h2>
+            {isFetchingMore && <Loader2 className="w-3 h-3 text-[#DE3151] animate-spin" />}
+          </div>
+          <div className="flex items-center gap-1.5 mt-0.5" onClick={() => setShowStatus(!showStatus)}>
+            {curationMethod === CurationMethod.AI_TAILORED ? (
+              <Zap className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />
+            ) : (
+              <Info className="w-2.5 h-2.5 text-zinc-600" />
+            )}
+            <span className="text-[8px] font-black uppercase tracking-[0.2em] text-zinc-600">
+              {curationMethod === CurationMethod.AI_TAILORED ? 'AI Curated' : 'Smart Fallback'}
+            </span>
+          </div>
         </div>
         <motion.button 
           whileTap={{ scale: 0.95 }}
@@ -163,6 +185,34 @@ const DiscoverSection: React.FC<DiscoverSectionProps> = ({ userId, onInteraction
       </div>
 
       <div className="relative flex-1">
+        <AnimatePresence>
+          {showStatus && curationNote && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-0 left-4 right-4 z-50 bg-zinc-950/90 border border-[#DE3151]/30 p-4 rounded-2xl backdrop-blur-xl shadow-2xl"
+            >
+              <div className="flex items-start gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${curationMethod === CurationMethod.AI_TAILORED ? 'bg-[#DE3151]/10 text-[#DE3151]' : 'bg-zinc-800 text-zinc-500'}`}>
+                  {curationMethod === CurationMethod.AI_TAILORED ? <Sparkles className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">
+                    {curationMethod === CurationMethod.AI_TAILORED ? 'Curation Applied' : 'Direction Adjusted'}
+                  </h4>
+                  <p className="text-[9px] font-medium text-zinc-400 leading-relaxed italic">
+                    {curationNote}
+                  </p>
+                </div>
+                <button onClick={() => setShowStatus(false)} className="text-zinc-700 hover:text-white">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence mode="popLayout">
           {isEmpty ? (
             <motion.div 

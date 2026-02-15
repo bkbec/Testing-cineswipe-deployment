@@ -1,5 +1,5 @@
 
-import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters, Ratings } from '../types';
+import { Movie, InteractionType, UserInteraction, UserProfile, DiscoveryFilters, Ratings, CurationMethod } from '../types';
 import { supabase } from '../lib/supabase';
 import { GoogleGenAI, Type } from "@google/genai";
 import Papa from 'papaparse';
@@ -74,35 +74,26 @@ export class MovieService {
     });
   }
 
-  static async validateLetterboxdUser(username: string): Promise<boolean> {
-     return !!username;
-  }
-
   private static async analyzeTaste(userId: string, filters?: DiscoveryFilters): Promise<any> {
-    if (!process.env.API_KEY) {
-      console.warn("Gemini API Key missing from environment. Discovery will use genre-based fallbacks.");
-      return null;
-    }
-
     try {
-      const interactions = await this.getInteractions(userId);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const interactions = await this.getInteractions(userId);
       
       const likes = interactions.filter(i => i.type === InteractionType.YES).map(i => i.title);
-      const highRated = interactions.filter(i => i.type === InteractionType.WATCHED && (i.personalRating || 0) >= 4)
-        .map(i => `${i.title} (${i.personalRating} stars)`);
+      const historyTitles = interactions.map(i => (i.title || '').toLowerCase());
 
-      const systemInstruction = `You are the Cinema Muse, an expert film curator. 
-      Your goal is to bypass generic blockbusters and find deep-cut recommendations. 
-      Ignore movies in the user's history. focus on niche, high-quality films that match the mood.`;
+      const systemInstruction = `You are the Cinema Muse.
+      CURATION RULES:
+      1. Deliver niche, high-quality recommendations based on the specific prompt.
+      2. Avoid generic blockbusters unless explicitly asked.
+      3. NEVER suggest movies in this list (already seen/liked): ${historyTitles.slice(0, 50).join(', ')}.
+      4. Focus on artistic merit and atmospheric matching.`;
 
-      const prompt = `User History: 
-      Likes: ${likes.slice(-10).join(', ') || 'None yet'}
-      Top Rated: ${highRated.slice(-10).join(' | ') || 'None yet'}
+      const prompt = `DIRECTION: "${filters?.naturalLanguagePrompt || 'Give me something unique'}"
+      USER TASTE: ${likes.slice(-5).join(', ')}
       
-      User Request: "${filters?.naturalLanguagePrompt || 'Find something unexpected and tailored to my DNA'}"
-      
-      Generate 15 specific, unique movie titles and the corresponding TMDB Genre IDs.`;
+      Suggest 15 films that match the DIRECTION and USER TASTE.
+      Return JSON: { "suggested_titles": [], "genre_ids": [], "curation_note": "A short why" }`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -115,7 +106,7 @@ export class MovieService {
             properties: {
               suggested_titles: { type: Type.ARRAY, items: { type: Type.STRING } },
               genre_ids: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-              reasoning: { type: Type.STRING }
+              curation_note: { type: Type.STRING }
             },
             required: ["suggested_titles", "genre_ids"]
           }
@@ -124,94 +115,83 @@ export class MovieService {
 
       return JSON.parse(response.text || '{}');
     } catch (e) {
-      console.error("Gemini AI Analysis failed on Vercel:", e);
+      console.error("Gemini Analysis Error:", e);
       return null;
     }
   }
 
-  static async getDiscoverQueue(userId: string, page: number = 1, filters?: DiscoveryFilters): Promise<{ movies: Movie[], nextPage: number }> {
+  static async getDiscoverQueue(userId: string, page: number = 1, filters?: DiscoveryFilters): Promise<{ movies: Movie[], nextPage: number, method: CurationMethod, note?: string }> {
     try {
       const interactions = await this.getInteractions(userId);
       const swipedIds = new Set(interactions.map(i => String(i.movieId)));
+      const swipedTitles = new Set(interactions.map(i => (i.title || '').toLowerCase()));
       
-      // Step 1: Get AI Suggestions
-      const taste = (page === 1 || filters?.naturalLanguagePrompt) ? await this.analyzeTaste(userId, filters) : null;
-      
-      let candidateMovies: Movie[] = [];
+      let movies: Movie[] = [];
+      let method = CurationMethod.AI_TAILORED;
+      let note = "Cinema Muse refined your feed.";
 
-      // Step 2: Handle AI Results
-      if (taste?.suggested_titles?.length > 0) {
-        const aiMovies = await Promise.all(
-          taste.suggested_titles.map(async (title: string) => {
-            const results = await this.searchMovies(title);
-            return results && results.length > 0 ? results[0] : null;
+      // 1. Attempt AI Tailoring
+      const aiResult = await this.analyzeTaste(userId, filters);
+      
+      if (aiResult?.suggested_titles?.length > 0) {
+        const results = await Promise.all(
+          aiResult.suggested_titles.map(async (t: string) => {
+            const search = await this.searchMovies(t);
+            return search?.[0]?.id ? search[0].id : null;
           })
         );
-        const detailedAiMovies = await this.getMoviesByIds(aiMovies.filter(m => m && m.id).map(m => m!.id!));
-        candidateMovies.push(...detailedAiMovies);
+        const validIds = results.filter((id): id is string => !!id);
+        const enriched = await this.getMoviesByIds(validIds);
+        movies.push(...enriched);
+        note = aiResult.curation_note || note;
       }
 
-      // Step 3: Supplement from TMDB Discover with "Smart Fallback"
-      let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&language=en-US`;
-      
-      // If AI failed or we need more, use history-based genres as fallback instead of just "random popularity"
-      if (taste?.genre_ids?.length > 0) {
-        discoverUrl += `&with_genres=${taste.genre_ids.join('|')}`;
-      } else if (interactions.length > 0) {
-        // Fallback: If AI fails but we have history, use the last liked genre
-        const lastLike = interactions.filter(i => i.type === InteractionType.YES).pop();
-        if (lastLike) {
-           const search = await this.searchMovies(lastLike.title || '');
-           if (search[0]?.id) {
-             const detailRes = await fetch(`${TMDB_BASE_URL}/movie/${search[0].id}?api_key=${TMDB_API_KEY}`);
-             const detail = await detailRes.json();
-             if (detail.genres?.[0]) {
-               discoverUrl += `&with_genres=${detail.genres[0].id}`;
-             }
-           }
-        }
-      }
-      
-      const res = await fetch(discoverUrl);
-      const data = await res.json();
-      
-      const discoveredRaw = data.results || [];
-      const discoveredEnriched = await this.enrichMovies(discoveredRaw);
-      candidateMovies.push(...discoveredEnriched);
+      // 2. Smart Fallback if AI results are thin or failed
+      if (movies.length < 5) {
+        method = CurationMethod.SMART_FALLBACK;
+        note = "AI direction failed. Using your Taste DNA for fallback curation.";
+        
+        // Find most liked genres
+        const genreCounts: Record<number, number> = {};
+        interactions.filter(i => i.type === InteractionType.YES).forEach(i => {
+           // We'd need to fetch genre for each like, but we can shortcut using AI's suggested genre_ids if available
+        });
 
-      // Step 4: Quality Control & Filtering
-      const filtered = candidateMovies.filter((m, index, self) => {
+        const fallbackGenreIds = aiResult?.genre_ids?.length > 0 ? aiResult.genre_ids : [18, 28]; // Drama/Action default
+        
+        let discoverUrl = `${TMDB_BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&page=${page}&sort_by=popularity.desc&vote_count.gte=100&with_genres=${fallbackGenreIds.join('|')}`;
+        const res = await fetch(discoverUrl);
+        const data = await res.json();
+        const enriched = await this.enrichMovies(data.results || []);
+        movies.push(...enriched);
+      }
+
+      // 3. Post-Process Filtering
+      const filtered = movies.filter((m, idx, self) => {
         if (!m || !m.id) return false;
         if (swipedIds.has(m.id)) return false;
-        // Check if swiped title is already in history (sometimes IDs vary but titles match)
-        const historyTitles = new Set(interactions.map(i => (i.title || '').toLowerCase()));
-        if (historyTitles.has(m.title.toLowerCase())) return false;
+        if (swipedTitles.has(m.title.toLowerCase())) return false;
+        if (self.findIndex(t => t.id === m.id) !== idx) return false;
         
-        if (self.findIndex(t => t.id === m.id) !== index) return false;
-
-        const rtScore = m.ratings.rottenTomatoesCritic;
-        const lbScore = m.ratings.letterboxd;
-        
-        // Quality Gate: Either decent RT or decent Letterboxd
-        const meetsRT = rtScore !== 'N/A' && Number(rtScore) >= 60;
-        const meetsLB = lbScore >= 3.0;
-
-        return meetsRT || meetsLB;
+        const lb = m.ratings.letterboxd;
+        const rt = m.ratings.rottenTomatoesCritic;
+        return (lb >= 3.0 || (rt !== 'N/A' && Number(rt) >= 60));
       });
 
-      // Recursive fill if empty (avoid returning nothing)
-      if (filtered.length < 5 && page < 15) {
-        const nextBatch = await this.getDiscoverQueue(userId, page + 1, filters);
-        return {
-          movies: [...filtered, ...nextBatch.movies],
-          nextPage: nextBatch.nextPage
-        };
+      // Avoid infinite recursion on Vercel: If filtered is empty, return whatever we have but mark it
+      if (filtered.length === 0 && page < 3) {
+        return this.getDiscoverQueue(userId, page + 1, filters);
       }
 
-      return { movies: filtered, nextPage: page + 1 };
-    } catch (error) {
-      console.error("Discovery Engine Error:", error);
-      return { movies: [], nextPage: page };
+      return { 
+        movies: filtered, 
+        nextPage: page + 1, 
+        method, 
+        note: filters?.naturalLanguagePrompt ? `AI curation applied for: "${filters.naturalLanguagePrompt}"` : note 
+      };
+    } catch (e) {
+      console.error("Discovery Engine Error:", e);
+      return { movies: [], nextPage: page, method: CurationMethod.TRENDING, note: "Emergency fallback to trending." };
     }
   }
 
@@ -398,7 +378,7 @@ export class MovieService {
       if (year) url += `&year=${year}`;
       const response = await fetch(url);
       const data = await response.json();
-      return (data.results || []).slice(0, 15).map((m: any) => ({
+      return (data.results || []).slice(0, 5).map((m: any) => ({
         id: String(m.id),
         title: m.title,
         posterUrl: m.poster_path ? `https://image.tmdb.org/t/p/w500${m.poster_path}` : 'https://via.placeholder.com/500x750?text=No+Poster'

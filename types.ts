@@ -29,6 +29,12 @@ export enum InteractionType {
   WATCHED = 'WATCHED'
 }
 
+export enum CurationMethod {
+  AI_TAILORED = 'AI_TAILORED',
+  SMART_FALLBACK = 'SMART_FALLBACK',
+  TRENDING = 'TRENDING'
+}
+
 export interface UserInteraction {
   userId: string;
   user_name?: string;
@@ -40,7 +46,6 @@ export interface UserInteraction {
   poster_url?: string;
   poster_path?: string;
   type: InteractionType;
-  swipe_type?: InteractionType;
   timestamp: number;
   personalRating?: number; 
   personal_rating?: number;
